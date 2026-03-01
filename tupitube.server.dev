@@ -1,0 +1,22 @@
+#!/bin/bash
+
+export TUPITUBE_HOME=/usr/local/tupitube.desk
+export TUPITUBE_SERVER_HOME=/home/xtingray/tupitube/sources/tupitube.server
+export TUPITUBE_DATA_PATH=/home/tupitube-server
+export QT_HOME=/home/xtingray/Qt5/5.15.2/gcc_64
+
+# export QT_DEBUG_PLUGINS=1
+export QT_PLUGIN_PATH=$QT_HOME/plugins
+
+export LD_LIBRARY_PATH=/usr/local/quazip/lib:$TUPITUBE_HOME/lib/tupitube:$TUPITUBE_HOME/lib/tupitube/plugins:$TUPITUBE_SERVER_HOME/src/lib:$TUPITUBE_SERVER_HOME/src/server/core:$TUPITUBE_SERVER_HOME/src/server/modules/users:$TUPITUBE_SERVER_HOME/src/server/modules/projects:$TUPITUBE_SERVER_HOME/src/server/modules/communications:$TUPITUBE_SERVER_HOME/src/server/modules/ban:$TUPITUBE_SERVER_HOME/src/server/modules/backups:$TUPITUBE_SERVER_HOME/src/server/base:$TUPITUBE_SERVER_HOME/src/server/parsers:$TUPITUBE_SERVER_HOME/src/server/packages:$TUPITUBE_SERVER_HOME/lib/tupitube:$LD_LIBRARY_PATH
+export QT_NO_GLIB=1
+
+BASE=`dirname $0`
+
+if [ "$1" == "-g" ]
+then
+	shift 1
+	gdb -ex run -ex bt --batch --args ${BASE}/bin/tupitube.server.bin "$*"
+else
+	${BASE}/bin/tupitube.server.bin $*
+fi

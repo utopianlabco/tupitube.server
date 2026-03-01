@@ -1,0 +1,63 @@
+# TupiTube Server
+
+TupiTube Server is a collaborative animation server for educational environments, 
+designed to work with TupiTube Desk - an open-source 2D animation tool for beginners.
+
+## Overview
+
+TupiTube Server enables real-time collaborative animation projects in classroom 
+settings. Students and teachers can work together on the same animation project 
+through a local network (Intranet), making it ideal for schools and workshops.
+
+## Features
+
+- Real-time collaborative project editing
+- User authentication and management
+- Project storage and backup
+- Multi-client support for classroom environments
+- Intuitive server GUI for monitoring connections and logs
+- SQLite database for user and project management
+
+## Requirements
+
+- Qt 5.15 or later
+- C++11 compatible compiler
+- TupiTube Desk (client application)
+- QuaZip library
+
+## Building
+
+See the [INSTALL](INSTALL) file for building and installation instructions.
+
+## Configuration
+
+The server stores its configuration in `~/.tupitube_server/` including:
+- Server settings (port, database path, projects path)
+- SQLite database with user accounts
+- Log files
+
+## Usage
+
+1. Start the TupiTube Server application
+2. Configure the server port and paths in Settings
+3. Add user accounts via the Users tab
+4. Students connect using TupiTube Desk with server credentials
+
+## Website
+
+https://tupitube.com
+
+## Bug Reports
+
+Please report issues at: https://tupitube.com
+
+Include:
+- Steps to reproduce the problem
+- Description of expected vs actual behavior
+- Version information and operating system
+- Log output if available
+
+## License
+
+TupiTube Server is free software. See the file COPYING for licensing details 
+(GNU General Public License v2).

@@ -1,0 +1,132 @@
+###########################################################################
+#   Project TupiTube Server                                               #
+#   Project Contact: info@tupitube.com                                    #
+#   Project Website: http://www.tupitube.com                              #
+#                                                                         #
+#   Developers:                                                           #
+#   2025:                                                                 #
+#    Utopian Lab Development Team                                         #
+#   2010:                                                                 #
+#    Gustav Gonzalez                                                      #
+#   ---                                                                   #
+#   KTooN's versions:                                                     #
+#   2006:                                                                 #
+#    David Cuadrado                                                       #
+#    Jorge Cuadrado                                                       #
+#   2003:                                                                 #
+#    Fernado Roldan                                                       #
+#    Simena Dinas                                                         #
+#                                                                         #
+#   License:                                                              #
+#   This program is free software; you can redistribute it and/or modify  #
+#   it under the terms of the GNU General Public License as published by  #
+#   the Free Software Foundation; either version 2 of the License, or     #
+#   (at your option) any later version.                                   #
+#                                                                         #
+#   This program is distributed in the hope that it will be useful,       #
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         #
+#   GNU General Public License for more details.                          #
+#                                                                         #
+#   You should have received a copy of the GNU General Public License     #
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>. #
+###########################################################################
+
+module RQonf
+
+class Config
+    def initialize()
+        @includePath = []
+        @libs = []
+        @modules = []
+        @defines = []
+        @scopes = []
+        @options = []
+    end
+
+    def addIncludePath(path)
+        @includePath << path
+    end
+
+    def addLib(lib)
+        @libs << lib
+    end
+
+    def addModule(mod)
+        @modules << mod
+    end
+
+    def addDefine(define)
+        @defines << define
+    end
+
+    def addScope(name)
+        scope = Scope.new(name)
+        @scopes << scope
+        scope
+    end
+
+    def addOption(opt)
+        @options << opt
+    end
+
+    def save(path)
+        if path[0].chr == File::SEPARATOR
+           path = path
+        else
+           path = "#{Dir.getwd}/#{path}"
+        end
+
+        File.open(path, "w") { |f|
+            f << "# Generated automatically at #{Time.now}! PLEASE DO NOT EDIT!"<< $endl
+            if not @includePath.empty?
+               f << "INCLUDEPATH += " << @includePath.uniq.join(" ") << $endl
+            end
+
+            if not @libs.empty?
+               f << "LIBS += " << @libs.uniq.join(" ") << $endl
+            end
+
+            if not @modules.empty?
+               f << "QT += " << @modules.uniq.join(" ") << $endl
+            end
+
+            if not @defines.empty?
+               f << "DEFINES += " << @defines.uniq.join(" ") << $endl
+            end
+
+            if not @scopes.empty?
+               @scopes.each { |scope|
+               f << scope.to_s
+               }
+            end
+
+            if not @options.empty?
+               f << "CONFIG += " << @options.uniq.join(" ") << $endl
+            end
+        }
+    end
+    
+    private
+        class Scope
+            def initialize(name)
+                @variables = {}
+                @name = name
+            end
+
+            def addVariable(var, val)
+                @variables[var] = val
+            end
+
+            def to_s
+                ret = "#{@name} {\n"
+                       @variables.each { |key, val|
+                       ret += "    #{key} = #{val}\n"
+                }
+                ret += "}\n"
+                ret
+            end
+    end
+end
+
+end # module

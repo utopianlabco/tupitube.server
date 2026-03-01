@@ -1,0 +1,111 @@
+# TupiTube Server - Installation Instructions
+
+## Prerequisites
+
+Before building TupiTube Server, ensure you have:
+
+- **Qt 5.15+** with development headers
+- **Ruby** (for the configure script)
+- **C++11 compatible compiler** (GCC, Clang, or MSVC)
+- **QuaZip library** (ZIP compression support)
+- **TupiTube Desk** (must be compiled first - server depends on its libraries)
+
+### Installing Dependencies
+
+**Debian/Ubuntu:**
+```bash
+sudo apt install build-essential ruby qt5-default libquazip5-dev
+```
+
+**Fedora:**
+```bash
+sudo dnf install gcc-c++ ruby qt5-qtbase-devel quazip-qt5-devel
+```
+
+**macOS (Homebrew):**
+```bash
+brew install qt@5 ruby quazip
+```
+
+## Building TupiTube Desk (Required)
+
+TupiTube Server depends on TupiTube Desk libraries. Build TupiTube Desk first:
+
+```bash
+cd /path/to/tupitube.desk
+./configure
+make
+```
+
+## Building TupiTube Server
+
+### Basic Build
+
+```bash
+cd /path/to/tupitube.server
+./configure --with-tupitube-dir=/path/to/tupitube.desk
+make
+```
+
+### Configure Options
+
+| Option | Description |
+|--------|-------------|
+| `--help, -h` | Show help message |
+| `--prefix=[path]` | Set installation prefix |
+| `--with-debug` | Enable debug output |
+| `--with-tupitube-dir=[path]` | Path to TupiTube Desk source (required) |
+| `--with-data-dir=[path]` | Set default data directory for database and projects |
+
+### Examples
+
+**Development build with debug output:**
+```bash
+./configure --with-tupitube-dir=../tupitube.desk --with-debug
+make
+```
+
+**Production build with custom data directory:**
+```bash
+./configure --with-tupitube-dir=/opt/tupitube.desk --with-data-dir=/var/lib/tupitube
+make
+```
+
+## Running
+
+After building, the server binary is located at:
+```
+bin/tupitube.server.bin
+```
+
+Run with:
+```bash
+./bin/tupitube.server.bin
+```
+
+## Data Directory
+
+The server stores its data (database, cache, projects) in one of these locations 
+(in priority order):
+
+1. `TUPITUBE_DATA_PATH` environment variable
+2. `--with-data-dir` compile-time setting
+3. `TUPITUBE_HOME` environment variable
+4. `~/.tupitube_server/` (default fallback)
+
+## Troubleshooting
+
+### Missing Qt
+If `qmake` is not found, ensure Qt's bin directory is in your PATH:
+```bash
+export PATH=/path/to/qt/bin:$PATH
+```
+
+### Missing TupiTube Desk libraries
+Ensure TupiTube Desk is compiled and the path is correct:
+```bash
+ls /path/to/tupitube.desk/lib/tupitube/
+```
+
+### Ruby not found
+Install Ruby using your system's package manager.

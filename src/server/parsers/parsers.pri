@@ -1,0 +1,4 @@
+
+INCLUDEPATH += $$PARSERS_DIR
+
+LIBS += -L$$PARSERS_DIR -lparsers

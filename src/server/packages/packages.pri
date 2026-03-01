@@ -1,0 +1,4 @@
+
+INCLUDEPATH += $$PACKAGES_DIR
+
+LIBS += -L$$PACKAGES_DIR -lserverpackage
