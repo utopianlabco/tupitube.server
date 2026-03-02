@@ -224,6 +224,9 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
     PackageHandler packageHandler;
 
     if (packageHandler.importPackage(absolutePath, uid)) {
+        // Clear any default scenes created by NetProject constructor
+        project->clear();
+
         QDir projectDir(packageHandler.importedProjectPath());
         QFile tppFile(projectDir.path() + QDir::separator() + "project.tpp");
 
