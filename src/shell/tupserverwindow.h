@@ -84,12 +84,21 @@ private slots:
     void editUser();
     void removeUser();
 
+    // Project collaboration slots
+    void refreshProjectsList();
+    void createProject();
+    void manageCollaborators();
+    void removeProject();
+    void onProjectSelectionChanged();
+    void viewProjectChat();
+
 private:
     void setupUI();
     void setupMenuBar();
     void setupTabs();
     void setupStatusTab();
     void setupUsersTab();
+    void setupProjectsTab();
     void setupLogsTab();
     void setupSettingsTab();
     void setupTrayIcon();
@@ -97,6 +106,7 @@ private:
     void updateDerivedPaths();
     void appendLog(const QString &message, const QString &level);
     void updateTrayTooltip();
+    void updateCollaboratorsDisplay(int projectId);
 
     // Server
     TcpServer *m_server;
@@ -106,6 +116,7 @@ private:
     QTabWidget *m_tabWidget;
     QWidget *m_statusTab;
     QWidget *m_usersTab;
+    QWidget *m_projectsTab;
     QWidget *m_logsTab;
     QWidget *m_settingsTab;
 
@@ -125,6 +136,15 @@ private:
     QPushButton *m_removeUserButton;
     QPushButton *m_refreshUsersButton;
     DatabaseHandler *m_dbHandler;
+
+    // Projects tab widgets
+    QTableWidget *m_projectsTable;
+    QTableWidget *m_collaboratorsTable;
+    QPushButton *m_createProjectButton;
+    QPushButton *m_manageCollaboratorsButton;
+    QPushButton *m_viewChatButton;
+    QPushButton *m_removeProjectButton;
+    QPushButton *m_refreshProjectsButton;
 
     // Logs tab widgets
     QTextEdit *m_logView;

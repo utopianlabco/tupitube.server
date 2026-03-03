@@ -688,3 +688,347 @@ bool DatabaseHandler::usernameExists(const QString &username) const
 
     return false;
 }
+
+// Collaboration management methods
+
+QList<DatabaseHandler::ProjectRecord> DatabaseHandler::getAllProjects() const
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::getAllProjects()]";
+    #endif
+
+    QList<ProjectRecord> projects;
+    QString sql = "SELECT p.project_id, p.title, p.filename, p.owner_id, u.username, p.description, "
+                  "p.created_at, p.is_shared FROM tupitube_project p "
+                  "LEFT JOIN tupitube_user u ON p.owner_id = u.user_id "
+                  "ORDER BY p.created_at DESC";
+    QSqlQuery query(sql);
+
+    while (query.next()) {
+        ProjectRecord record;
+        record.projectId = query.value(0).toInt();
+        record.title = query.value(1).toString();
+        record.filename = query.value(2).toString();
+        record.ownerId = query.value(3).toInt();
+        record.ownerUsername = query.value(4).toString();
+        record.description = query.value(5).toString();
+        record.createdAt = query.value(6).toString();
+        record.isShared = query.value(7).toBool();
+        projects.append(record);
+    }
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::getAllProjects()] - Found" << projects.size() << "projects";
+    #endif
+
+    return projects;
+}
+
+QList<DatabaseHandler::CollaboratorInfo> DatabaseHandler::getProjectCollaborators(int projectId) const
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::getProjectCollaborators()] - projectId:" << projectId;
+    #endif
+
+    QList<CollaboratorInfo> collaborators;
+    QString sql = "SELECT c.collaboration_id, c.user_id, u.username, u.name, c.permission_level "
+                  "FROM tupitube_collaboration c "
+                  "LEFT JOIN tupitube_user u ON c.user_id = u.user_id "
+                  "WHERE c.project_id = " + QString::number(projectId) + " "
+                  "ORDER BY u.username";
+    QSqlQuery query(sql);
+
+    while (query.next()) {
+        CollaboratorInfo info;
+        info.collaborationId = query.value(0).toInt();
+        info.userId = query.value(1).toInt();
+        info.username = query.value(2).toString();
+        info.name = query.value(3).toString();
+        info.permissionLevel = query.value(4).toInt();
+        collaborators.append(info);
+    }
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::getProjectCollaborators()] - Found" << collaborators.size() << "collaborators";
+    #endif
+
+    return collaborators;
+}
+
+bool DatabaseHandler::addCollaborator(int projectId, int userId, int permissionLevel)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::addCollaborator()] - projectId:" << projectId << "userId:" << userId;
+    #endif
+
+    // Check if collaboration already exists
+    QString checkSql = "SELECT COUNT(*) FROM tupitube_collaboration WHERE project_id = " 
+                       + QString::number(projectId) + " AND user_id = " + QString::number(userId);
+    QSqlQuery checkQuery(checkSql);
+    if (checkQuery.first() && checkQuery.value(0).toInt() > 0) {
+        #ifdef TUP_DEBUG
+            qDebug() << "[DatabaseHandler::addCollaborator()] - Collaboration already exists";
+        #endif
+        return false;
+    }
+
+    QString sql = "INSERT INTO tupitube_collaboration (project_id, user_id, permission_level) VALUES (";
+    sql += QString::number(projectId) + ", ";
+    sql += QString::number(userId) + ", ";
+    sql += QString::number(permissionLevel) + ")";
+
+    QSqlQuery query;
+    bool isOk = query.exec(sql);
+
+    if (isOk) {
+        // Mark project as shared
+        QString updateSql = "UPDATE tupitube_project SET is_shared = 1 WHERE project_id = " + QString::number(projectId);
+        QSqlQuery updateQuery;
+        updateQuery.exec(updateSql);
+    }
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::addCollaborator()] - SQL:" << sql;
+        if (!isOk)
+            qWarning() << "[DatabaseHandler::addCollaborator()] - Error:" << query.lastError().text();
+    #endif
+
+    return isOk;
+}
+
+bool DatabaseHandler::removeCollaborator(int projectId, int userId)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::removeCollaborator()] - projectId:" << projectId << "userId:" << userId;
+    #endif
+
+    QString sql = "DELETE FROM tupitube_collaboration WHERE project_id = " + QString::number(projectId) 
+                  + " AND user_id = " + QString::number(userId);
+
+    QSqlQuery query;
+    bool isOk = query.exec(sql);
+
+    if (isOk) {
+        // Check if project still has collaborators
+        QString checkSql = "SELECT COUNT(*) FROM tupitube_collaboration WHERE project_id = " + QString::number(projectId);
+        QSqlQuery checkQuery(checkSql);
+        if (checkQuery.first() && checkQuery.value(0).toInt() == 0) {
+            // No more collaborators, mark project as not shared
+            QString updateSql = "UPDATE tupitube_project SET is_shared = 0 WHERE project_id = " + QString::number(projectId);
+            QSqlQuery updateQuery;
+            updateQuery.exec(updateSql);
+        }
+    }
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::removeCollaborator()] - SQL:" << sql;
+        if (!isOk)
+            qWarning() << "[DatabaseHandler::removeCollaborator()] - Error:" << query.lastError().text();
+    #endif
+
+    return isOk;
+}
+
+bool DatabaseHandler::createEmptyProject(const QString &title, const QString &description, int ownerId, 
+                                          const QString &filename, const QList<int> &collaboratorIds)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::createEmptyProject()] - title:" << title << "owner:" << ownerId;
+    #endif
+
+    bool isShared = !collaboratorIds.isEmpty();
+
+    QString sql = "INSERT INTO tupitube_project (title, description, owner_id, filename, is_shared) VALUES (";
+    sql += "'" + title + "', ";
+    sql += "'" + description + "', ";
+    sql += QString::number(ownerId) + ", ";
+    sql += "'" + filename + "', ";
+    sql += QString::number(isShared ? 1 : 0) + ")";
+
+    QSqlQuery query;
+    bool isOk = query.exec(sql);
+
+    if (!isOk) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::createEmptyProject()] - Error creating project:" << query.lastError().text();
+        #endif
+        return false;
+    }
+
+    // Get the newly created project ID
+    int projectId = query.lastInsertId().toInt();
+
+    // Add collaborators
+    for (int userId : collaboratorIds) {
+        if (userId != ownerId) {  // Don't add owner as collaborator
+            addCollaborator(projectId, userId);
+        }
+    }
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::createEmptyProject()] - Created project ID:" << projectId;
+    #endif
+
+    return true;
+}
+QString DatabaseHandler::getProjectFilename(int projectId) const
+{
+    QSqlQuery query;
+    query.exec("SELECT filename FROM tupitube_project WHERE project_id = " + QString::number(projectId));
+    if (query.next())
+        return query.value(0).toString();
+    return QString();
+}
+
+int DatabaseHandler::getProjectOwnerId(int projectId) const
+{
+    QSqlQuery query;
+    query.exec("SELECT owner_id FROM tupitube_project WHERE project_id = " + QString::number(projectId));
+    if (query.next())
+        return query.value(0).toInt();
+    return -1;
+}
+
+bool DatabaseHandler::deleteProject(int projectId)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::deleteProject()] - Deleting project ID:" << projectId;
+    #endif
+
+    QSqlDatabase::database().transaction();
+
+    // First delete all collaborators for this project
+    QSqlQuery collabQuery;
+    collabQuery.exec("DELETE FROM tupitube_collaboration WHERE project_id = " + QString::number(projectId));
+
+    // Then delete the project itself
+    QSqlQuery projectQuery;
+    bool success = projectQuery.exec("DELETE FROM tupitube_project WHERE project_id = " + QString::number(projectId));
+
+    if (success && projectQuery.numRowsAffected() > 0) {
+        QSqlDatabase::database().commit();
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::deleteProject()] - Project deleted successfully";
+        #endif
+        return true;
+    } else {
+        QSqlDatabase::database().rollback();
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::deleteProject()] - Failed to delete project:" << projectQuery.lastError().text();
+        #endif
+        return false;
+    }
+}
+
+bool DatabaseHandler::saveChatMessage(int projectId, int userId, const QString &username, 
+                                      const QString &message, const QString &messageType)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::saveChatMessage()] - User:" << username << "Type:" << messageType;
+    #endif
+
+    QSqlQuery query;
+    query.prepare("INSERT INTO tupitube_chat (project_id, user_id, username, message, message_type) "
+                  "VALUES (:projectId, :userId, :username, :message, :messageType)");
+    
+    if (projectId > 0)
+        query.bindValue(":projectId", projectId);
+    else
+        query.bindValue(":projectId", QVariant(QVariant::Int));  // NULL for global chat
+    
+    query.bindValue(":userId", userId);
+    query.bindValue(":username", username);
+    query.bindValue(":message", message);
+    query.bindValue(":messageType", messageType);
+
+    if (!query.exec()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::saveChatMessage()] - Error:" << query.lastError().text();
+        #endif
+        return false;
+    }
+
+    return true;
+}
+
+QList<DatabaseHandler::ChatMessage> DatabaseHandler::getChatHistory(int projectId, int limit) const
+{
+    QList<ChatMessage> messages;
+
+    QString sql = "SELECT chat_id, project_id, user_id, username, message, message_type, created_at "
+                  "FROM tupitube_chat ";
+    
+    if (projectId > 0)
+        sql += "WHERE project_id = " + QString::number(projectId) + " ";
+    
+    sql += "ORDER BY created_at DESC LIMIT " + QString::number(limit);
+
+    QSqlQuery query;
+    query.exec(sql);
+
+    while (query.next()) {
+        ChatMessage msg;
+        msg.chatId = query.value(0).toInt();
+        msg.projectId = query.value(1).toInt();
+        msg.userId = query.value(2).toInt();
+        msg.username = query.value(3).toString();
+        msg.message = query.value(4).toString();
+        msg.messageType = query.value(5).toString();
+        msg.createdAt = query.value(6).toString();
+        messages.append(msg);
+    }
+
+    return messages;
+}
+
+QList<DatabaseHandler::ChatMessage> DatabaseHandler::getChatHistoryByDate(const QString &fromDate, const QString &toDate) const
+{
+    QList<ChatMessage> messages;
+
+    QSqlQuery query;
+    query.prepare("SELECT chat_id, project_id, user_id, username, message, message_type, created_at "
+                  "FROM tupitube_chat "
+                  "WHERE created_at >= :fromDate AND created_at <= :toDate "
+                  "ORDER BY created_at DESC");
+    query.bindValue(":fromDate", fromDate);
+    query.bindValue(":toDate", toDate);
+    query.exec();
+
+    while (query.next()) {
+        ChatMessage msg;
+        msg.chatId = query.value(0).toInt();
+        msg.projectId = query.value(1).toInt();
+        msg.userId = query.value(2).toInt();
+        msg.username = query.value(3).toString();
+        msg.message = query.value(4).toString();
+        msg.messageType = query.value(5).toString();
+        msg.createdAt = query.value(6).toString();
+        messages.append(msg);
+    }
+
+    return messages;
+}
+
+bool DatabaseHandler::clearChatHistory(int projectId)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::clearChatHistory()] - Project ID:" << projectId;
+    #endif
+
+    QSqlQuery query;
+    QString sql;
+    
+    if (projectId > 0)
+        sql = "DELETE FROM tupitube_chat WHERE project_id = " + QString::number(projectId);
+    else
+        sql = "DELETE FROM tupitube_chat";
+
+    if (!query.exec(sql)) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::clearChatHistory()] - Error:" << query.lastError().text();
+        #endif
+        return false;
+    }
+
+    return true;
+}

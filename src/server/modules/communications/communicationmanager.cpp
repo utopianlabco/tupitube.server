@@ -32,6 +32,7 @@
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 #include "communicationmanager.h"
+#include "databasehandler.h"
 //base
 #include "packagebase.h"
 #include "settings.h"
@@ -47,10 +48,12 @@
     
 CommunicationManager::CommunicationManager() : Observer()
 {
+    m_dbHandler = new DatabaseHandler();
 }
 
 CommunicationManager::~CommunicationManager()
 {
+    delete m_dbHandler;
 }
 
 void CommunicationManager::handlePackage(PackageBase *const pkg)
@@ -60,6 +63,7 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
     #endif
 
     Connection *cnn = pkg->source();
+    User *user = cnn->user();
     
     if (pkg->root() == "communication_chat") {
 
@@ -67,7 +71,12 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
         doc.setContent(pkg->xml());
         
         QDomElement element = doc.firstChild().firstChildElement("message");
-        element.setAttribute("from", cnn->user()->login());
+        QString message = element.text();
+        element.setAttribute("from", user->login());
+        
+        // Save message to database for teacher review
+        m_dbHandler->saveChatMessage(-1, user->uid(), user->login(), message, "chat");
+        
         cnn->sendToAll(doc);
         pkg->accept();
 
@@ -77,7 +86,12 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
         doc.setContent(pkg->xml());
         
         QDomElement element = doc.firstChild().firstChildElement("message");
-        element.setAttribute("from", cnn->user()->login());
+        QString message = element.text();
+        element.setAttribute("from", user->login());
+        
+        // Save notice to database
+        m_dbHandler->saveChatMessage(-1, user->uid(), user->login(), message, "notice");
+        
         cnn->sendToAll(doc); //TODO: enviar a todos los clientes del proyecto
         pkg->accept();
 
@@ -86,7 +100,12 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
         QDomDocument doc;
         doc.setContent(pkg->xml());
         QDomElement element = doc.firstChild().firstChildElement("message");
-        element.setAttribute("from", cnn->user()->login());
+        QString message = element.text();
+        element.setAttribute("from", user->login());
+        
+        // Save wall message to database
+        m_dbHandler->saveChatMessage(-1, user->uid(), user->login(), message, "wall");
+        
         cnn->sendToAll(doc);
         pkg->accept();
 

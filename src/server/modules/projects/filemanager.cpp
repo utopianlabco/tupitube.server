@@ -338,3 +338,144 @@ bool FileManager::removeCacheDir(const QString &path)
     return result;
 }
 
+bool FileManager::createEmptyProjectFile(const QString &projectName, const QString &description,
+                                          const QString &author, int ownerId, const QString &filename,
+                                          const QSize &dimension, int fps)
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[FileManager::createEmptyProjectFile()]";
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Creating project:" << projectName;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Owner ID:" << ownerId;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Filename:" << filename;
+    #endif
+
+    // Create the project structure
+    NetProject *project = new NetProject();
+    project->setProjectName(projectName);
+    project->setDescription(description);
+    project->setAuthor(author);
+    project->setDimension(dimension);
+    project->setFPS(fps);
+    project->setFilename(filename);
+    project->setOwner(ownerId);
+    project->setOpen(true);
+
+    // Create user directories
+    QString repoDir = kAppProp->repositoryDir();
+    if (repoDir.endsWith("/"))
+        repoDir.chop(1);
+    QString userPath = repoDir + "/users/" + QString::number(ownerId) + "/";
+
+    QDir repository(userPath);
+    if (!repository.exists()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Creating user directories:" << userPath;
+        #endif
+        bool ok = repository.mkpath(userPath + "projects");
+        ok = ok && repository.mkpath(userPath + "animations/thumbnails");
+        ok = ok && repository.mkpath(userPath + "storyboards/thumbnails");
+        ok = ok && repository.mkpath(userPath + "images/thumbnails");
+
+        if (!ok) {
+            #ifdef TUP_DEBUG
+                qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create user directories!";
+            #endif
+            delete project;
+            return false;
+        }
+    }
+
+    // Create cache directory for project
+    QString cacheBase = CACHE_DIR;
+    if (cacheBase.endsWith("/"))
+        cacheBase.chop(1);
+    QString cachePath = cacheBase + "/" + QString::number(ownerId) + "/" + filename;
+    QDir cacheDir(cachePath);
+
+    if (!cacheDir.exists()) {
+        if (!cacheDir.mkpath(cachePath)) {
+            #ifdef TUP_DEBUG
+                qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create cache directory!";
+            #endif
+            delete project;
+            return false;
+        }
+    }
+
+    project->setDataDir(cachePath);
+
+    // Save project.tpp
+    QString tppPath = cachePath + "/project.tpp";
+    QFile projectFile(tppPath);
+    if (projectFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream ts(&projectFile);
+        QDomDocument doc;
+        doc.appendChild(project->toXml(doc));
+        ts << doc.toString();
+        projectFile.close();
+    } else {
+        #ifdef TUP_DEBUG
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Can't create project.tpp";
+        #endif
+        delete project;
+        return false;
+    }
+
+    // Save scene files
+    int index = 0;
+    foreach (TupScene *scene, project->getScenes()) {
+        QDomDocument doc;
+        doc.appendChild(scene->toXml(doc));
+
+        QString tpsPath = cachePath + "/scene" + QString::number(index) + ".tps";
+        QFile sceneFile(tpsPath);
+
+        if (sceneFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream st(&sceneFile);
+            st << doc.toString();
+            index += 1;
+            sceneFile.close();
+        } else {
+            #ifdef TUP_DEBUG
+                qWarning() << "[FileManager::createEmptyProjectFile()] - Can't create scene file";
+            #endif
+            delete project;
+            return false;
+        }
+    }
+
+    // Save library.tpl
+    QString tplPath = cachePath + "/library.tpl";
+    QFile libraryFile(tplPath);
+    if (libraryFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream ts(&libraryFile);
+        QDomDocument doc;
+        doc.appendChild(project->getLibrary()->toXml(doc));
+        ts << doc.toString();
+        libraryFile.close();
+    } else {
+        #ifdef TUP_DEBUG
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Can't create library.tpl";
+        #endif
+        delete project;
+        return false;
+    }
+
+    // Package into .tup file
+    QString absolutePath = userPath + "projects/" + filename + ".tup";
+    PackageHandler packageHandler;
+    bool isOk = packageHandler.makePackage(cachePath, absolutePath, QString::number(ownerId));
+
+    if (isOk) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Project created successfully at:" << absolutePath;
+        #endif
+    } else {
+        #ifdef TUP_DEBUG
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create .tup package";
+        #endif
+    }
+
+    delete project;
+    return isOk;
+}

@@ -48,7 +48,10 @@ class FileManager : public QObject
         bool save(const QString &filename, NetProject *project, int uid);
         bool load(const QString &filename, NetProject *project, const QString &uid);
 
-    private:
+        // Creates an empty project file on disk with one scene, layer, and frame
+        static bool createEmptyProjectFile(const QString &projectName, const QString &description,
+                                           const QString &author, int ownerId, const QString &filename,
+                                       const QSize &dimension = QSize(1920, 1080), int fps = 12);
 	bool removeCacheDir(const QString &path);
 };
 

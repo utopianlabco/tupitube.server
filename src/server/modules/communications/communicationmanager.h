@@ -36,6 +36,8 @@
 
 #include "observer.h"
 
+class DatabaseHandler;
+
 class CommunicationManager : public Observer
 {
     public:
@@ -43,6 +45,9 @@ class CommunicationManager : public Observer
         ~CommunicationManager();
         
         void handlePackage(PackageBase *const pkg);
+
+    private:
+        DatabaseHandler *m_dbHandler;
 };
 
 #endif

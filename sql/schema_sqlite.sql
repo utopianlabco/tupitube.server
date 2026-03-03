@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS tupitube_log (
     date DATETIME DEFAULT (datetime('now'))
 );
 
+-- Chat messages table (for teacher review)
+CREATE TABLE IF NOT EXISTS tupitube_chat (
+    chat_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER,
+    user_id INTEGER NOT NULL,
+    username VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    message_type VARCHAR(20) DEFAULT 'chat',
+    created_at DATETIME DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES tupitube_user(user_id),
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id)
+);
+
 -- User table for HumHub compatibility (optional)
 CREATE TABLE IF NOT EXISTS user (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_collection_slug ON tupitube_collection(slug);
 CREATE INDEX IF NOT EXISTS idx_collaboration_user ON tupitube_collaboration(user_id);
 CREATE INDEX IF NOT EXISTS idx_collaboration_project ON tupitube_collaboration(project_id);
 CREATE INDEX IF NOT EXISTS idx_user_username ON tupitube_user(username);
+CREATE INDEX IF NOT EXISTS idx_chat_project ON tupitube_chat(project_id);
+CREATE INDEX IF NOT EXISTS idx_chat_user ON tupitube_chat(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_created ON tupitube_chat(created_at);
 
 -- Insert default admin user (password: admin123)
 -- Note: In production, change this password immediately!

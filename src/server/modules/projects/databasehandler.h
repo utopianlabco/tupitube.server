@@ -94,6 +94,56 @@ class DatabaseHandler
         bool updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator);
         bool removeUser(int userId);
         bool usernameExists(const QString &username) const;
+
+        // Collaboration management methods (teacher-only from server GUI)
+        struct CollaboratorInfo
+        {
+            int collaborationId;
+            int userId;
+            QString username;
+            QString name;
+            int permissionLevel;
+        };
+
+        struct ProjectRecord
+        {
+            int projectId;
+            QString title;
+            QString filename;
+            int ownerId;
+            QString ownerUsername;
+            QString description;
+            QString createdAt;
+            bool isShared;
+        };
+
+        QList<ProjectRecord> getAllProjects() const;
+        QList<CollaboratorInfo> getProjectCollaborators(int projectId) const;
+        bool addCollaborator(int projectId, int userId, int permissionLevel = 1);
+        bool removeCollaborator(int projectId, int userId);
+        bool deleteProject(int projectId);
+        QString getProjectFilename(int projectId) const;
+        int getProjectOwnerId(int projectId) const;
+        bool createEmptyProject(const QString &title, const QString &description, int ownerId, 
+                                const QString &filename, const QList<int> &collaboratorIds);
+
+        // Chat message storage (for teacher review)
+        struct ChatMessage
+        {
+            int chatId;
+            int projectId;
+            int userId;
+            QString username;
+            QString message;
+            QString messageType;  // "chat", "notice", "wall"
+            QString createdAt;
+        };
+
+        bool saveChatMessage(int projectId, int userId, const QString &username, 
+                             const QString &message, const QString &messageType = "chat");
+        QList<ChatMessage> getChatHistory(int projectId = -1, int limit = 500) const;
+        QList<ChatMessage> getChatHistoryByDate(const QString &fromDate, const QString &toDate) const;
+        bool clearChatHistory(int projectId = -1);
         
     private:
         QString incomingFolderID(const QString &uid, const QString &type) const;
