@@ -56,6 +56,7 @@
 #include <QNetworkInterface>
 #include <QCryptographicHash>
 #include <QListWidget>
+#include <QDomDocument>
 
 static QStringList getLocalIPAddresses()
 {
@@ -234,9 +235,9 @@ void TupServerWindow::setupTabs()
     setupSettingsTab();
 
     m_tabWidget->addTab(m_statusTab, QIcon(":/icons/status.png"), tr("Status"));
+    m_tabWidget->addTab(m_logsTab, QIcon(":/icons/logs.png"), tr("Logs"));
     m_tabWidget->addTab(m_usersTab, QIcon(":/icons/users.png"), tr("Users"));
     m_tabWidget->addTab(m_projectsTab, QIcon(":/icons/project.png"), tr("Projects"));
-    m_tabWidget->addTab(m_logsTab, QIcon(":/icons/logs.png"), tr("Logs"));
     m_tabWidget->addTab(m_settingsTab, QIcon(":/icons/settings.png"), tr("Settings"));
 }
 
@@ -254,6 +255,12 @@ void TupServerWindow::setupStatusTab()
     m_toggleButton->setStyleSheet("QPushButton { font-size: 16px; font-weight: bold; }");
     connect(m_toggleButton, &QPushButton::clicked, this, &TupServerWindow::toggleServer);
     controlLayout->addWidget(m_toggleButton);
+
+    m_broadcastButton = new QPushButton(tr("Broadcast Message"));
+    m_broadcastButton->setMinimumHeight(40);
+    m_broadcastButton->setEnabled(false);
+    connect(m_broadcastButton, &QPushButton::clicked, this, &TupServerWindow::sendBroadcastMessage);
+    controlLayout->addWidget(m_broadcastButton);
 
     layout->addWidget(controlGroup);
 
@@ -728,6 +735,8 @@ void TupServerWindow::onServerStarted()
     m_toggleButton->setText(tr("Stop Server"));
     m_toggleButton->setStyleSheet("QPushButton { font-size: 16px; font-weight: bold; background-color: #e74c3c; color: white; }");
 
+    m_broadcastButton->setEnabled(true);
+
     m_statusLabel->setText(tr("Running"));
     m_statusLabel->setStyleSheet("QLabel { color: #27ae60; font-weight: bold; font-size: 14px; }");
 
@@ -763,6 +772,8 @@ void TupServerWindow::onServerStopped()
 
     m_toggleButton->setText(tr("Start Server"));
     m_toggleButton->setStyleSheet("QPushButton { font-size: 16px; font-weight: bold; }");
+
+    m_broadcastButton->setEnabled(false);
 
     m_statusLabel->setText(tr("Stopped"));
     m_statusLabel->setStyleSheet("QLabel { color: #c0392b; font-weight: bold; font-size: 14px; }");
@@ -1700,4 +1711,67 @@ void TupServerWindow::viewProjectChat()
     chatTable->scrollToBottom();
 
     dialog.exec();
+}
+
+void TupServerWindow::sendBroadcastMessage()
+{
+    if (!m_serverRunning) {
+        QMessageBox::warning(this, tr("Server Not Running"),
+            tr("Please start the server before broadcasting messages."));
+        return;
+    }
+
+    // Check if there are connected users
+    if (m_connectedUsersTable->rowCount() == 0) {
+        QMessageBox::information(this, tr("No Connected Users"),
+            tr("There are no users currently connected to the server."));
+        return;
+    }
+
+    // Create input dialog
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Broadcast Message"));
+    dialog.setMinimumWidth(400);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+    QLabel *label = new QLabel(tr("Enter a message to send to all connected students:"));
+    layout->addWidget(label);
+
+    QTextEdit *messageEdit = new QTextEdit();
+    messageEdit->setPlaceholderText(tr("Type your message here..."));
+    messageEdit->setMinimumHeight(100);
+    layout->addWidget(messageEdit);
+
+    QDialogButtonBox *buttonBox = new QDialogButtonBox();
+    QPushButton *sendButton = buttonBox->addButton(tr("Send"), QDialogButtonBox::AcceptRole);
+    buttonBox->addButton(QDialogButtonBox::Cancel);
+    connect(sendButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttonBox);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        QString message = messageEdit->toPlainText().trimmed();
+        if (message.isEmpty()) {
+            QMessageBox::warning(this, tr("Empty Message"),
+                tr("Please enter a message to broadcast."));
+            return;
+        }
+
+        // Create the communication_wall XML package
+        QDomDocument doc;
+        QDomElement root = doc.createElement("communication_wall");
+        root.setAttribute("version", 0);
+        doc.appendChild(root);
+
+        QDomElement msgElement = doc.createElement("message");
+        msgElement.setAttribute("from", tr("Teacher"));
+        msgElement.setAttribute("text", message);
+        root.appendChild(msgElement);
+
+        // Broadcast to all connected clients
+        m_server->sendToAll(doc);
+
+        appendLog(tr("Broadcast message sent: %1").arg(message), "INFO");
+    }
 }

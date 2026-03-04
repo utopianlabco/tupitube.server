@@ -297,20 +297,35 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
 
     QString absolutePath = kAppProp->repositoryDir() + "users/" + uid + "/projects/" + filename + ".tup";
 
-    QList<Connection *> partners = m_connectionList[filename];
-    int size = partners.size();
-    QString loginList = QObject::tr("me");
-    if (size > 0)
-        loginList += ",";
-    for (int i = 0; i < size; ++i) {
-         loginList += partners.at(i)->user()->login(); 
-         if (i != size-1)
-             loginList += ",";
+    // Get project ID from database
+    QString projectId = m_dbHandler->exists(filename, uid);
+    
+    // Build loginList from ALL project collaborators in database (not just connected users)
+    QStringList userList;
+    
+    // Add project owner
+    QString ownerUsername = m_dbHandler->getOwnerUsername(projectId.toInt());
+    userList << ownerUsername;
+    
+    // Add all collaborators from database
+    QList<DatabaseHandler::CollaboratorInfo> collaborators = m_dbHandler->getProjectCollaborators(projectId.toInt());
+    for (const DatabaseHandler::CollaboratorInfo &collab : collaborators) {
+        if (!userList.contains(collab.username))
+            userList << collab.username;
     }
+    
+    QString loginList = userList.join(",");
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[ProjectManager::registerProject()] - Login list: " << loginList;
+    #endif
 
     Project projectPackage(loginList, absolutePath);
     connection->sendStringToClient(projectPackage.toString());
-    // Notice msg("<b>" + connection->user()->login() + "</b>" + " has joined the project");
+
+    // Send notice to connected partners
+    QList<Connection *> partners = m_connectionList[filename];
+    int size = partners.size();
     Notice msg(connection->user()->login(), 1);
 
     for (int i = 0; i < size; ++i)

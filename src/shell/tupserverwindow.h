@@ -91,6 +91,7 @@ private slots:
     void removeProject();
     void onProjectSelectionChanged();
     void viewProjectChat();
+    void sendBroadcastMessage();
 
 private:
     void setupUI();
@@ -122,6 +123,7 @@ private:
 
     // Status tab widgets
     QPushButton *m_toggleButton;
+    QPushButton *m_broadcastButton;
     QLabel *m_statusLabel;
     QLabel *m_hostLabel;
     QLabel *m_portLabel;

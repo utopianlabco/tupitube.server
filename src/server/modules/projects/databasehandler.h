@@ -124,6 +124,7 @@ class DatabaseHandler
         bool deleteProject(int projectId);
         QString getProjectFilename(int projectId) const;
         int getProjectOwnerId(int projectId) const;
+        QString getOwnerUsername(int projectId) const;
         bool createEmptyProject(const QString &title, const QString &description, int ownerId, 
                                 const QString &filename, const QList<int> &collaboratorIds);
 

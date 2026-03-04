@@ -889,6 +889,21 @@ int DatabaseHandler::getProjectOwnerId(int projectId) const
     return -1;
 }
 
+QString DatabaseHandler::getOwnerUsername(int projectId) const
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::getOwnerUsername()] - projectId:" << projectId;
+    #endif
+
+    QString sql = "SELECT u.username FROM tupitube_project p "
+                  "LEFT JOIN tupitube_user u ON p.owner_id = u.user_id "
+                  "WHERE p.project_id = " + QString::number(projectId);
+    QSqlQuery query(sql);
+    if (query.next())
+        return query.value(0).toString();
+    return QString();
+}
+
 bool DatabaseHandler::deleteProject(int projectId)
 {
     #ifdef TUP_DEBUG
