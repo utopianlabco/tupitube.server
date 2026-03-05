@@ -323,13 +323,19 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     Project projectPackage(loginList, absolutePath);
     connection->sendStringToClient(projectPackage.toString());
 
-    // Send notice to connected partners
+    // Send notice to connected partners that new user joined
     QList<Connection *> partners = m_connectionList[filename];
     int size = partners.size();
     Notice msg(connection->user()->login(), 1);
 
     for (int i = 0; i < size; ++i)
          partners.at(i)->sendStringToClient(msg.toString());
+
+    // Send notices to the new user about already-connected partners
+    for (int i = 0; i < size; ++i) {
+        Notice onlineMsg(partners.at(i)->user()->login(), 1);
+        connection->sendStringToClient(onlineMsg.toString());
+    }
 
     m_connectionList[filename].append(connection);
 }
@@ -725,14 +731,23 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
     Connection *connection = pkg->source();
 
     if (root == "project_request") {
+        #ifdef TUP_DEBUG
+            qWarning() << "[ProjectManager::handlePackage()] - project_request from:" << connection->user()->login();
+        #endif
         if (connection->user()->isEnabled()) {
             if (!connection->data(Info::ProjectID).toString().isNull()) {
                 QString projectID = connection->data(Info::ProjectID).toString();
+                #ifdef TUP_DEBUG
+                    qWarning() << "[ProjectManager::handlePackage()] - Processing request for project:" << projectID;
+                #endif
                 if (handleProjectRequest(projectID, package)) {
                     QDomDocument request;
                     request.setContent(package);
                     sendToProjectMembers(connection, request);
                 } else {
+                    #ifdef TUP_DEBUG
+                        qWarning() << "[ProjectManager::handlePackage()] - handleProjectRequest returned false!";
+                    #endif
                     connection->sendNotification(340, QObject::tr("Cannot handle project request"), 
                                                  Notification::Warning);
                 }
@@ -743,6 +758,9 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
             }
 
         } else {
+            #ifdef TUP_DEBUG
+                qWarning() << "[ProjectManager::handlePackage()] - User NOT enabled:" << connection->user()->login();
+            #endif
             connection->sendNotification(360, QObject::tr("Insufficient permissions"), 
                                          Notification::Warning);
         }
@@ -963,6 +981,8 @@ bool ProjectManager::handleProjectRequest(const QString &projectID, const QStrin
 {
     #ifdef TUP_DEBUG
         qDebug() << "[ProjectManager::handleProjectRequest()]";
+        qWarning() << "[ProjectManager::handleProjectRequest()] - Looking for projectID:" << projectID;
+        qWarning() << "[ProjectManager::handleProjectRequest()] - Opened projects:" << m_openedProjects.keys();
     #endif
 
     TupRequestParser parser;
@@ -970,18 +990,28 @@ bool ProjectManager::handleProjectRequest(const QString &projectID, const QStrin
     if (parser.parse(request)) {
         NetProject *project = m_openedProjects.value(projectID);
         if (project) {
+            #ifdef TUP_DEBUG
+                qWarning() << "[ProjectManager::handleProjectRequest()] - Project found, executing command...";
+            #endif
             TupCommandExecutor *commandExecutor = new TupCommandExecutor(project);
             TupProjectCommand command(commandExecutor, parser.getResponse());
             command.redo();
             delete commandExecutor;
             project->resetTimer();
 
+            #ifdef TUP_DEBUG
+                qWarning() << "[ProjectManager::handleProjectRequest()] - Command executed successfully, returning true";
+            #endif
             return true;
         } else {
             #ifdef TUP_DEBUG
                    qDebug() << "[ProjectManager::handleProjectRequest()] - Fatal Error: Project " << projectID << " not found";
             #endif
         }
+    } else {
+        #ifdef TUP_DEBUG
+            qWarning() << "[ProjectManager::handleProjectRequest()] - Failed to parse request";
+        #endif
     }
     
     return false;
@@ -1011,12 +1041,29 @@ void ProjectManager::sendToProjectMembers(Connection *connection, QDomDocument &
 
     QString projectID = connection->data(Info::ProjectID).toString();
     connection->signPackage(doc);
+
+    #ifdef TUP_DEBUG
+        qWarning() << "[ProjectManager::sendToProjectMembers()] - ProjectID:" << projectID;
+        qWarning() << "[ProjectManager::sendToProjectMembers()] - Sender UID:" << connection->user()->uid() << "Login:" << connection->user()->login();
+        qWarning() << "[ProjectManager::sendToProjectMembers()] - Total connections for project:" << m_connectionList[projectID].size();
+    #endif
  
     foreach (Connection *link, m_connectionList[projectID]) {
-             if (link->user()->uid() != connection->user()->uid()) {
-                 if (link->user()->isEnabled())
-                     link->sendStringToClient(doc.toString(0));
-             }
+        #ifdef TUP_DEBUG
+            qWarning() << "[ProjectManager::sendToProjectMembers()] - Checking link UID:" << link->user()->uid() << "Login:" << link->user()->login();
+        #endif
+        if (link->user()->uid() != connection->user()->uid()) {
+            if (link->user()->isEnabled()) {
+                #ifdef TUP_DEBUG
+                    qWarning() << "[ProjectManager::sendToProjectMembers()] - Sending to:" << link->user()->login();
+                #endif
+                link->sendStringToClient(doc.toString(0));
+            } else {
+                #ifdef TUP_DEBUG
+                    qWarning() << "[ProjectManager::sendToProjectMembers()] - User NOT enabled:" << link->user()->login();
+                #endif
+            }
+        }
     }
 }
 
