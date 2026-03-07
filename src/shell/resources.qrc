@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>data/icons/broadcast.png</file>
+        <file alias="icons/broadcast.png">data/icons/broadcast.png</file>
+        <file alias="themes/dark/config/ui.qss">data/themes/dark/config/ui.qss</file>
+        <file alias="themes/default/config/ui.qss">data/themes/default/config/ui.qss</file>
+    </qresource>
+</RCC>

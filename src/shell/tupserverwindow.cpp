@@ -33,6 +33,7 @@
  ***************************************************************************/
 #include "tupserverwindow.h"
 #include "tconfig.h"
+#include "tservertheme.h"
 #include "logger.h"
 #include "tapplicationproperties.h"
 #include "filemanager.h"
@@ -256,17 +257,14 @@ void TupServerWindow::setupStatusTab()
     connect(m_toggleButton, &QPushButton::clicked, this, &TupServerWindow::toggleServer);
     controlLayout->addWidget(m_toggleButton);
 
-    m_broadcastButton = new QPushButton(tr("Broadcast Message"));
-    m_broadcastButton->setMinimumHeight(40);
-    m_broadcastButton->setEnabled(false);
-    connect(m_broadcastButton, &QPushButton::clicked, this, &TupServerWindow::sendBroadcastMessage);
-    controlLayout->addWidget(m_broadcastButton);
-
     layout->addWidget(controlGroup);
 
     // Status info group
     QGroupBox *infoGroup = new QGroupBox(tr("Server Information"));
-    QFormLayout *infoLayout = new QFormLayout(infoGroup);
+    QHBoxLayout *infoGroupLayout = new QHBoxLayout(infoGroup);
+
+    // Form layout for status fields on the left
+    QFormLayout *infoLayout = new QFormLayout();
     infoLayout->setSpacing(10);
 
     m_statusLabel = new QLabel(tr("Stopped"));
@@ -285,6 +283,26 @@ void TupServerWindow::setupStatusTab()
 
     m_uptimeLabel = new QLabel("00:00:00");
     infoLayout->addRow(tr("Uptime:"), m_uptimeLabel);
+
+    infoGroupLayout->addLayout(infoLayout);
+    infoGroupLayout->addStretch();
+
+    // Broadcast button at right side inside the group box
+    m_broadcastButton = new QPushButton();
+    m_broadcastButton->setIcon(QIcon(":/icons/broadcast.png"));
+    m_broadcastButton->setIconSize(QSize(40, 40));
+    m_broadcastButton->setFixedSize(60, 60);
+    m_broadcastButton->setToolTip(tr("Broadcast Message"));
+    m_broadcastButton->setEnabled(false);
+    m_broadcastButton->setStyleSheet(
+        "QPushButton { border-radius: 30px; background-color: #27ae60; border: none; outline: none; padding: 0px; }"
+        "QPushButton:hover { background-color: #219a52; }"
+        "QPushButton:pressed { background-color: #1e8449; }"
+        "QPushButton:disabled { background-color: #ffffff; }"
+        "QPushButton:focus { outline: none; }"
+    );
+    connect(m_broadcastButton, &QPushButton::clicked, this, &TupServerWindow::sendBroadcastMessage);
+    infoGroupLayout->addWidget(m_broadcastButton, 0, Qt::AlignVCenter);
 
     layout->addWidget(infoGroup);
     layout->addStretch();
@@ -522,6 +540,21 @@ void TupServerWindow::setupSettingsTab()
 
     layout->addWidget(languageGroup);
 
+    // Theme settings
+    QGroupBox *themeGroup = new QGroupBox(tr("Theme Settings"));
+    QFormLayout *themeLayout = new QFormLayout(themeGroup);
+
+    m_themeCombo = new QComboBox();
+    m_themeCombo->addItem(tr("Dark"), DARK_THEME);
+    m_themeCombo->addItem(tr("Light"), LIGHT_THEME);
+    themeLayout->addRow(tr("UI Theme:"), m_themeCombo);
+
+    QLabel *themeNote = new QLabel(tr("Theme changes will take effect after restart."));
+    themeNote->setStyleSheet("color: gray; font-style: italic;");
+    themeLayout->addRow("", themeNote);
+
+    layout->addWidget(themeGroup);
+
     // Save button
     QHBoxLayout *saveLayout = new QHBoxLayout();
     saveLayout->addStretch();
@@ -585,6 +618,14 @@ void TupServerWindow::loadSettings()
         m_languageCombo->setCurrentIndex(langIndex);
     TCONFIG->endGroup();
 
+    // Load Theme
+    TCONFIG->beginGroup("Theme");
+    int uiTheme = TCONFIG->value("UITheme", DARK_THEME).toInt();
+    int themeIndex = m_themeCombo->findData(uiTheme);
+    if (themeIndex >= 0)
+        m_themeCombo->setCurrentIndex(themeIndex);
+    TCONFIG->endGroup();
+
     // Update derived path labels
     updateDerivedPaths();
 
@@ -631,6 +672,14 @@ void TupServerWindow::saveSettings()
     TCONFIG->setValue("Language", newLanguage);
     TCONFIG->endGroup();
 
+    // Save Theme
+    TCONFIG->beginGroup("Theme");
+    int newTheme = m_themeCombo->currentData().toInt();
+    int oldTheme = TCONFIG->value("UITheme", DARK_THEME).toInt();
+    TCONFIG->setValue("UITheme", newTheme);
+    TCONFIG->setValue("BgColor", TServerTheme::defaultBgColor(newTheme));
+    TCONFIG->endGroup();
+
     TCONFIG->beginGroup("Database");
     TCONFIG->setValue("DatabasePath", dataPath + "/sqlite");
     TCONFIG->endGroup();
@@ -650,8 +699,8 @@ void TupServerWindow::saveSettings()
     m_portLabel->setText(QString::number(m_portSpin->value()));
 
     QString message = tr("Settings have been saved.");
-    if (newLanguage != oldLanguage) {
-        message += "\n\n" + tr("Language change will take effect after restarting the application.");
+    if (newLanguage != oldLanguage || newTheme != oldTheme) {
+        message += "\n\n" + tr("Some changes will take effect after restarting the application.");
     } else {
         message += " " + tr("They will take effect when the server is restarted.");
     }
@@ -735,10 +784,8 @@ void TupServerWindow::onServerStarted()
     m_toggleButton->setText(tr("Stop Server"));
     m_toggleButton->setStyleSheet("QPushButton { font-size: 16px; font-weight: bold; background-color: #e74c3c; color: white; }");
 
-    m_broadcastButton->setEnabled(true);
-
     m_statusLabel->setText(tr("Running"));
-    m_statusLabel->setStyleSheet("QLabel { color: #27ae60; font-weight: bold; font-size: 14px; }");
+    m_statusLabel->setStyleSheet("QLabel { background-color: #27ae60; color: white; font-weight: bold; font-size: 14px; padding: 4px 8px; border-radius: 4px; }");
 
     QString displayHost = m_hostCombo->currentText();
     if (displayHost.contains(" ("))
@@ -776,7 +823,7 @@ void TupServerWindow::onServerStopped()
     m_broadcastButton->setEnabled(false);
 
     m_statusLabel->setText(tr("Stopped"));
-    m_statusLabel->setStyleSheet("QLabel { color: #c0392b; font-weight: bold; font-size: 14px; }");
+    m_statusLabel->setStyleSheet("QLabel { background-color: #c0392b; color: white; font-weight: bold; font-size: 14px; padding: 4px 8px; border-radius: 4px; }");
 
     m_connectionCountLabel->setText("0");
     m_uptimeLabel->setText("00:00:00");
@@ -800,6 +847,7 @@ void TupServerWindow::onServerStopped()
 void TupServerWindow::onConnectionCountChanged(int count)
 {
     m_connectionCountLabel->setText(QString::number(count));
+    m_broadcastButton->setEnabled(count > 0);
     updateTrayTooltip();
 }
 

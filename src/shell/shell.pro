@@ -8,8 +8,14 @@ TARGET = ../../bin/tupitube.server.bin
 CONFIG += release warn_on
 TEMPLATE = app
 
-HEADERS += tupserverwindow.h
-SOURCES += main.cpp tupserverwindow.cpp
+HEADERS += tupserverwindow.h \
+           tservertheme.h
+           
+SOURCES += main.cpp \
+           tupserverwindow.cpp \
+           tservertheme.cpp
+           
+RESOURCES += resources.qrc
 
 TRANSLATIONS += ../../translations/tupitube_server_en.ts \
                 ../../translations/tupitube_server_es.ts

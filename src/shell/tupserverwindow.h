@@ -160,6 +160,7 @@ private:
     QLabel *m_cachePathLabel;
     QLabel *m_projectsPathLabel;
     QComboBox *m_languageCombo;
+    QComboBox *m_themeCombo;
     QPushButton *m_saveSettingsButton;
     QPushButton *m_browseDataPathButton;
 
