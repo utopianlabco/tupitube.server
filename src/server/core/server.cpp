@@ -37,7 +37,7 @@
 #include "tapplicationproperties.h"
 #include "packagehandlerbase.h"
 #include "defaultpackagehandler.h"
-#include "projectmanager.h"
+#include "../modules/projects/projectmanager.h"
 #include "usermanager.h"
 #include "communicationmanager.h"
 #include "settings.h"
@@ -73,6 +73,9 @@ TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
 
     m_projectManager = new ProjectManager;
     m_observers << m_projectManager;
+    connect(m_projectManager, &ProjectManager::projectEventLog, this, [this](const QString &msg, const QString &level) {
+        emit logMessage(msg, level);
+    });
 
     m_communicationManager = new CommunicationManager;
     m_observers << m_communicationManager;

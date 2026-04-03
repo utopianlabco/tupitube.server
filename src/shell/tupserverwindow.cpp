@@ -90,7 +90,7 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     m_server(nullptr), m_serverRunning(false), m_dbHandler(nullptr)
 {
     setWindowTitle(tr("TupiTube Server"));
-    setWindowIcon(QIcon(":/icons/server.png"));
+    setWindowIcon(QIcon(":/icons/tupitube_server.png"));
     setMinimumSize(700, 500);
 
     m_server = new TcpServer(this);
@@ -648,11 +648,49 @@ void TupServerWindow::updateDerivedPaths()
 void TupServerWindow::saveSettings()
 {
     if (m_serverRunning) {
-        QMessageBox::warning(this, tr("Warning"),
-            tr("Please stop the server before changing settings."));
-        return;
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(tr("Restart Required"));
+        msgBox.setText(tr("To activate these changes the app must be restarted. Are you sure?"));
+        QPushButton *applyButton = msgBox.addButton(tr("Apply"), QMessageBox::AcceptRole);
+        QPushButton *cancelButton = msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+        msgBox.setDefaultButton(cancelButton);
+        msgBox.exec();
+        if (msgBox.clickedButton() == applyButton) {
+            saveConfigSettings();
+            qApp->quit();
+        }   
+        
+        return;        
     }
 
+    // Save all config settings
+    saveConfigSettings();
+
+    // Update display labels
+    QString hostText = m_hostCombo->currentText();
+    if (hostText.contains(" ("))
+        hostText = hostText.section(" (", 0, 0);
+    m_hostLabel->setText(hostText);
+    m_portLabel->setText(QString::number(m_portSpin->value()));
+
+    QString newLanguage = m_languageCombo->currentData().toString();
+    int newTheme = m_themeCombo->currentData().toInt();
+    QString oldLanguage = TCONFIG->value("Language", "en").toString();
+    int oldTheme = TCONFIG->value("UITheme", DARK_THEME).toInt();
+
+    QString message = tr("Settings have been saved.");
+    if (newLanguage != oldLanguage || newTheme != oldTheme) {
+        message += "\n\n" + tr("Some changes will take effect after restarting the application.");
+    } else {
+        message += " " + tr("They will take effect when the server is restarted.");
+    }
+
+    appendLog(tr("Settings saved successfully"), "INFO");
+    QMessageBox::information(this, tr("Settings Saved"), message);
+}
+
+void TupServerWindow::saveConfigSettings()
+{
     TCONFIG->beginGroup("Connection");
     // Extract just the IP address (remove interface name if present)
     QString hostText = m_hostCombo->currentText();
@@ -668,14 +706,11 @@ void TupServerWindow::saveSettings()
     TCONFIG->beginGroup("General");
     TCONFIG->setValue("DataPath", dataPath);
     QString newLanguage = m_languageCombo->currentData().toString();
-    QString oldLanguage = TCONFIG->value("Language", "en").toString();
     TCONFIG->setValue("Language", newLanguage);
     TCONFIG->endGroup();
 
-    // Save Theme
     TCONFIG->beginGroup("Theme");
     int newTheme = m_themeCombo->currentData().toInt();
-    int oldTheme = TCONFIG->value("UITheme", DARK_THEME).toInt();
     TCONFIG->setValue("UITheme", newTheme);
     TCONFIG->setValue("BgColor", TServerTheme::defaultBgColor(newTheme));
     TCONFIG->endGroup();
@@ -693,20 +728,6 @@ void TupServerWindow::saveSettings()
     TCONFIG->endGroup();
 
     TCONFIG->sync();
-
-    // Update display labels
-    m_hostLabel->setText(hostText);
-    m_portLabel->setText(QString::number(m_portSpin->value()));
-
-    QString message = tr("Settings have been saved.");
-    if (newLanguage != oldLanguage || newTheme != oldTheme) {
-        message += "\n\n" + tr("Some changes will take effect after restarting the application.");
-    } else {
-        message += " " + tr("They will take effect when the server is restarted.");
-    }
-
-    appendLog(tr("Settings saved successfully"), "INFO");
-    QMessageBox::information(this, tr("Settings Saved"), message);
 }
 
 void TupServerWindow::toggleServer()

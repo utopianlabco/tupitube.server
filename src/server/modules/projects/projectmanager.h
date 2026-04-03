@@ -52,14 +52,19 @@
 class ProjectManager : public Observer
 {
     Q_OBJECT
+public:
 
-    public:
-        enum VideoCase { Normal = 0, Fixed, FpsOne };
-        // enum AndroidVersion { Newer = 0, Older };
-        ProjectManager();
-        ~ProjectManager();
-        
-        void handlePackage(PackageBase *const pkg);
+
+
+    enum VideoCase { Normal = 0, Fixed, FpsOne };
+
+public:
+    ProjectManager();
+    ~ProjectManager();
+    void handlePackage(PackageBase *const pkg);
+
+signals:
+    void projectEventLog(const QString &message, const QString &level);
 
     // private slots:
         // void updateProcessStatus(int exitCode, QProcess::ExitStatus exitStatus);

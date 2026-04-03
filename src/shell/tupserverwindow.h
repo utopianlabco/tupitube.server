@@ -77,6 +77,7 @@ private slots:
     void saveSettings();
     void trayIconActivated(QSystemTrayIcon::ActivationReason reason);
     void clearLogs();
+     void saveConfigSettings(); // Added method declaration
 
     // User management slots
     void refreshUsersList();

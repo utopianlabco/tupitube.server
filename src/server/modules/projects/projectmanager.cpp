@@ -129,7 +129,9 @@ void ProjectManager::createProject(Connection *connection)
         project->setDataDir(cacheDir + "/" + uid + "/" + filename);
         registerProject(connection, uid, filename, project);
 
-        Logger::self()->info(QObject::tr("New project \"%1\" has been created by user %2").arg(projectName, connection->user()->login()));
+        QString msg = QObject::tr("New project \"%1\" has been created by user %2").arg(projectName, connection->user()->login());
+        Logger::self()->info(msg);
+        emit projectEventLog(msg, "INFO");
 
     } else {
         #ifdef TUP_DEBUG
@@ -164,10 +166,25 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             return;
         }
 
+
         NetProject *project = new NetProject;
         QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                          connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
-  
+
+        // Lookup project title from database
+        QString projectTitle;
+        {
+            QSqlQuery query;
+            query.prepare("SELECT title FROM tupitube_project WHERE filename = :filename AND owner_id = :owner_id");
+            query.bindValue(":filename", filename);
+            query.bindValue(":owner_id", ownerID);
+            if (query.exec() && query.next()) {
+                projectTitle = query.value(0).toString();
+            } else {
+                projectTitle = filename; // fallback
+            }
+        }
+
         if (!m_openedProjects.contains(filename)) {
             FileManager *manager = new FileManager;
             bool ok = manager->load(filename, project, ownerID);
@@ -185,7 +202,10 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             project->setOwner(ownerID.toInt());
             project->setFilename(filename);
 
-            Logger::self()->info(QObject::tr("Project \"%1\" has been openned by user %2").arg(project->getName(), connection->user()->login()));
+            QString msg = QObject::tr("User %1 from %2 opened project: %3")
+                .arg(connection->user()->login(), connection->ip(), projectTitle);
+            Logger::self()->info(msg);
+            emit projectEventLog(msg, "INFO");
         } else {
             #ifdef TUP_DEBUG
                    qWarning() << "[ProjectManager::openProject()] - Project is already open - Connecting socket...";
@@ -197,7 +217,10 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                              connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
 
-            Logger::self()->info(QObject::tr("User %1 has joined the project \"%2\"").arg(connection->user()->login(), project->getName()));
+            QString msg = QObject::tr("User %1 from %2 opened project: %3")
+                .arg(connection->user()->login(), connection->ip(), projectTitle);
+            Logger::self()->info(msg);
+            emit projectEventLog(msg, "INFO");
         }
 
         registerProject(connection, ownerID, filename, project);
