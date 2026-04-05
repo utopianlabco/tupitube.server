@@ -575,24 +575,36 @@ QList<DatabaseHandler::UserInfo> DatabaseHandler::getAllUsers() const
     #endif
 
     QList<UserInfo> users;
-    QString sql = "SELECT user_id, username, name, password, is_enabled, is_creator FROM tupitube_user ORDER BY username";
+    QString sql = "SELECT user_id, name, class, username, password, is_enabled, is_creator, projects_public_policy, files_public_policy, works_public_policy, created_at, updated_at FROM tupitube_user ORDER BY username";
     QSqlQuery query(sql);
 
+    int rowCount = 0;
     while (query.next()) {
         UserInfo user;
-        user.userId = query.value(0).toInt();
-        user.username = query.value(1).toString();
-        user.name = query.value(2).toString();
-        user.password = query.value(3).toString();
-        user.isEnabled = query.value(4).toBool();
-        user.isCreator = query.value(5).toBool();
+        user.userId    = query.value(0).toInt();
+        user.name      = query.value(1).toString();
+        user.userClass = query.value(2).toString();
+        user.username  = query.value(3).toString();
+        user.password  = query.value(4).toString();
+        user.isEnabled = query.value(5).toBool();
+        user.isCreator = query.value(6).toBool();
+        // If you add more fields to UserInfo, map them here as well
         users.append(user);
+        // #ifdef TUP_DEBUG
+        //     qDebug() << "[getAllUsers] Row" << rowCount << ":"
+        //              << user.userId << user.name << user.userClass << user.username << user.password
+        //              << user.isEnabled << user.isCreator;
+        // #endif
+        ++rowCount;
     }
+    #ifdef TUP_DEBUG
+    qDebug() << "[getAllUsers] Total rows found:" << rowCount;
+    #endif
 
     return users;
 }
 
-bool DatabaseHandler::addUser(const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator)
+bool DatabaseHandler::addUser(const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[DatabaseHandler::addUser()] - username:" << username;
@@ -605,12 +617,16 @@ bool DatabaseHandler::addUser(const QString &username, const QString &name, cons
         return false;
     }
 
-    QString sql = "INSERT INTO tupitube_user (username, name, password, is_enabled, is_creator) VALUES (";
+    QString sql = "INSERT INTO tupitube_user (username, name, password, is_enabled, is_creator, class) VALUES (";
     sql += "'" + username + "', ";
     sql += "'" + name + "', ";
     sql += "'" + password + "', ";
     sql += QString::number(isEnabled ? 1 : 0) + ", ";
-    sql += QString::number(isCreator ? 1 : 0) + ")";
+    sql += QString::number(isCreator ? 1 : 0) + ", ";
+    QString safeClass = userClass;
+    safeClass.replace("'", "''");
+    sql += "'" + safeClass + "'";
+    sql += ")";
 
     QSqlQuery query;
     bool isOk = query.exec(sql);
@@ -624,7 +640,7 @@ bool DatabaseHandler::addUser(const QString &username, const QString &name, cons
     return isOk;
 }
 
-bool DatabaseHandler::updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator)
+bool DatabaseHandler::updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[DatabaseHandler::updateUser()] - userId:" << userId;
@@ -638,7 +654,10 @@ bool DatabaseHandler::updateUser(int userId, const QString &username, const QStr
     }
     sql += "is_enabled = " + QString::number(isEnabled ? 1 : 0) + ", ";
     sql += "is_creator = " + QString::number(isCreator ? 1 : 0) + ", ";
-    sql += "updated_at = datetime('now') ";
+    QString safeClass = userClass;
+    safeClass.replace("'", "''");
+    sql += "class = '" + safeClass + "'";
+    sql += ", updated_at = datetime('now') ";
     sql += "WHERE user_id = " + QString::number(userId);
 
     QSqlQuery query;

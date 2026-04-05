@@ -84,6 +84,7 @@ private slots:
     void addUser();
     void editUser();
     void removeUser();
+    void importUsersFromCsv();
 
     // Project collaboration slots
     void refreshProjectsList();
@@ -138,6 +139,7 @@ private:
     QPushButton *m_editUserButton;
     QPushButton *m_removeUserButton;
     QPushButton *m_refreshUsersButton;
+    QPushButton *m_importCsvButton;
     DatabaseHandler *m_dbHandler;
 
     // Projects tab widgets

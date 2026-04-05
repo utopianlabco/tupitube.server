@@ -164,6 +164,22 @@ void TcpServer::createDatabaseSchema()
     QSqlQuery query(m_db);
     
     // Create tupitube_user table
+
+    // Migration: add 'class' column if it does not exist
+    QSqlQuery checkClassCol(m_db);
+    checkClassCol.exec("PRAGMA table_info(tupitube_user)");
+    bool hasClassCol = false;
+    while (checkClassCol.next()) {
+        if (checkClassCol.value(1).toString() == "class") {
+            hasClassCol = true;
+            break;
+        }
+    }
+    if (!hasClassCol) {
+        QSqlQuery alterQuery(m_db);
+        alterQuery.exec("ALTER TABLE tupitube_user ADD COLUMN class VARCHAR(50)");
+    }
+
     QString createUserTable = 
         "CREATE TABLE IF NOT EXISTS tupitube_user ("
         "user_id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -172,13 +188,13 @@ void TcpServer::createDatabaseSchema()
         "password VARCHAR(255) NOT NULL,"
         "is_enabled INTEGER DEFAULT 1,"
         "is_creator INTEGER DEFAULT 1,"
+        "class VARCHAR(50),"
         "projects_public_policy INTEGER DEFAULT 0,"
         "files_public_policy INTEGER DEFAULT 0,"
         "works_public_policy INTEGER DEFAULT 0,"
         "created_at DATETIME DEFAULT (datetime('now')),"
         "updated_at DATETIME DEFAULT (datetime('now'))"
         ")";
-    
     if (!query.exec(createUserTable)) {
         #ifdef TUP_DEBUG
             qDebug() << "[TcpServer::createDatabaseSchema()] - Error creating tupitube_user:" << query.lastError().text();

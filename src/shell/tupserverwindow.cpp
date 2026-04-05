@@ -332,8 +332,8 @@ void TupServerWindow::setupUsersTab()
     QGroupBox *registeredGroup = new QGroupBox(tr("Registered Users"));
     QVBoxLayout *registeredLayout = new QVBoxLayout(registeredGroup);
 
-    m_registeredUsersTable = new QTableWidget(0, 5);
-    m_registeredUsersTable->setHorizontalHeaderLabels({tr("ID"), tr("Username"), tr("Name"), tr("Enabled"), tr("Creator")});
+    m_registeredUsersTable = new QTableWidget(0, 6);
+    m_registeredUsersTable->setHorizontalHeaderLabels({tr("ID"), tr("Username"), tr("Name"), tr("Class"), tr("Enabled"), tr("Creator")});
     m_registeredUsersTable->horizontalHeader()->setStretchLastSection(true);
     m_registeredUsersTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_registeredUsersTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -343,6 +343,9 @@ void TupServerWindow::setupUsersTab()
     m_registeredUsersTable->setColumnHidden(0, true); // Hide ID column
 
     registeredLayout->addWidget(m_registeredUsersTable);
+
+    // Enable double-click to edit user
+    connect(m_registeredUsersTable, &QTableWidget::itemDoubleClicked, this, &TupServerWindow::editUser);
 
     // Buttons for user management
     QHBoxLayout *buttonLayout = new QHBoxLayout();
@@ -362,6 +365,11 @@ void TupServerWindow::setupUsersTab()
     connect(m_removeUserButton, &QPushButton::clicked, this, &TupServerWindow::removeUser);
     buttonLayout->addWidget(m_removeUserButton);
 
+
+    m_importCsvButton = new QPushButton(tr("Import Users"));
+    m_importCsvButton->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
+    connect(m_importCsvButton, &QPushButton::clicked, this, &TupServerWindow::importUsersFromCsv);
+    buttonLayout->addWidget(m_importCsvButton);
     buttonLayout->addStretch();
 
     m_refreshUsersButton = new QPushButton(tr("Refresh"));
@@ -393,6 +401,9 @@ void TupServerWindow::setupProjectsTab()
     m_projectsTable->setAlternatingRowColors(true);
     m_projectsTable->setColumnHidden(0, true); // Hide ID column
     connect(m_projectsTable, &QTableWidget::itemSelectionChanged, this, &TupServerWindow::onProjectSelectionChanged);
+    connect(m_projectsTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem*) {
+        manageCollaborators();
+    });
 
     projectsLayout->addWidget(m_projectsTable);
 
@@ -999,16 +1010,27 @@ void TupServerWindow::refreshUsersList()
     }
 
     QList<DatabaseHandler::UserInfo> users = m_dbHandler->getAllUsers();
-
     for (const DatabaseHandler::UserInfo &user : users) {
         int row = m_registeredUsersTable->rowCount();
         m_registeredUsersTable->insertRow(row);
 
-        m_registeredUsersTable->setItem(row, 0, new QTableWidgetItem(QString::number(user.userId)));
-        m_registeredUsersTable->setItem(row, 1, new QTableWidgetItem(user.username));
-        m_registeredUsersTable->setItem(row, 2, new QTableWidgetItem(user.name));
-        m_registeredUsersTable->setItem(row, 3, new QTableWidgetItem(user.isEnabled ? tr("Yes") : tr("No")));
-        m_registeredUsersTable->setItem(row, 4, new QTableWidgetItem(user.isCreator ? tr("Yes") : tr("No")));
+        QList<QTableWidgetItem*> items;
+        items << new QTableWidgetItem(QString::number(user.userId));
+        items << new QTableWidgetItem(user.username);
+        items << new QTableWidgetItem(user.name);
+        items << new QTableWidgetItem(user.userClass); // New Class column
+        items << new QTableWidgetItem(user.isEnabled ? tr("Yes") : tr("No"));
+        items << new QTableWidgetItem(user.isCreator ? tr("Yes") : tr("No"));
+
+        if (!user.isEnabled) {
+            QColor fg(200, 0, 0);     // red text for disabled
+            for (QTableWidgetItem* item : items) {
+                item->setData(Qt::ForegroundRole, fg);
+            }
+        }
+        for (int col = 0; col < items.size(); ++col) {
+            m_registeredUsersTable->setItem(row, col, items[col]);
+        }
     }
 
     appendLog(tr("User list refreshed: %1 users found").arg(users.count()), "INFO");
@@ -1022,13 +1044,17 @@ void TupServerWindow::addUser()
 
     QFormLayout *formLayout = new QFormLayout(&dialog);
 
-    QLineEdit *usernameEdit = new QLineEdit();
-    usernameEdit->setPlaceholderText(tr("Enter username"));
-    formLayout->addRow(tr("Username:"), usernameEdit);
-
     QLineEdit *nameEdit = new QLineEdit();
     nameEdit->setPlaceholderText(tr("Enter full name"));
     formLayout->addRow(tr("Full Name:"), nameEdit);
+
+    QLineEdit *classEdit = new QLineEdit();
+    classEdit->setPlaceholderText(tr("Enter class (optional)"));
+    formLayout->addRow(tr("Class:"), classEdit);
+
+    QLineEdit *usernameEdit = new QLineEdit();
+    usernameEdit->setPlaceholderText(tr("Enter username"));
+    formLayout->addRow(tr("Username:"), usernameEdit);
 
     QLineEdit *passwordEdit = new QLineEdit();
     passwordEdit->setEchoMode(QLineEdit::Password);
@@ -1088,6 +1114,7 @@ void TupServerWindow::addUser()
     if (dialog.exec() == QDialog::Accepted) {
         QString username = usernameEdit->text().trimmed();
         QString name = nameEdit->text().trimmed();
+        QString userClass = classEdit->text().trimmed();
         QString password = passwordEdit->text();
         QString confirmPassword = confirmPasswordEdit->text();
 
@@ -1101,7 +1128,7 @@ void TupServerWindow::addUser()
         md5.addData(password.toUtf8());
         QString hashedPassword = md5.result().toHex();
 
-        bool success = m_dbHandler->addUser(username, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked());
+        bool success = m_dbHandler->addUser(username, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked(), userClass);
 
         if (success) {
             appendLog(tr("User '%1' added successfully").arg(username), "INFO");
@@ -1124,8 +1151,9 @@ void TupServerWindow::editUser()
     int userId = m_registeredUsersTable->item(currentRow, 0)->text().toInt();
     QString currentUsername = m_registeredUsersTable->item(currentRow, 1)->text();
     QString currentName = m_registeredUsersTable->item(currentRow, 2)->text();
-    bool currentEnabled = m_registeredUsersTable->item(currentRow, 3)->text() == tr("Yes");
-    bool currentCreator = m_registeredUsersTable->item(currentRow, 4)->text() == tr("Yes");
+    QString currentClass = m_registeredUsersTable->item(currentRow, 3)->text();
+    bool currentEnabled = m_registeredUsersTable->item(currentRow, 4)->text() == tr("Yes");
+    bool currentCreator = m_registeredUsersTable->item(currentRow, 5)->text() == tr("Yes");
 
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Edit User: %1").arg(currentUsername));
@@ -1133,11 +1161,14 @@ void TupServerWindow::editUser()
 
     QFormLayout *formLayout = new QFormLayout(&dialog);
 
-    QLineEdit *usernameEdit = new QLineEdit(currentUsername);
-    formLayout->addRow(tr("Username:"), usernameEdit);
-
     QLineEdit *nameEdit = new QLineEdit(currentName);
     formLayout->addRow(tr("Full Name:"), nameEdit);
+
+    QLineEdit *classEdit = new QLineEdit(currentClass);
+    formLayout->addRow(tr("Class:"), classEdit);
+
+    QLineEdit *usernameEdit = new QLineEdit(currentUsername);
+    formLayout->addRow(tr("Username:"), usernameEdit);
 
     QLineEdit *passwordEdit = new QLineEdit();
     passwordEdit->setEchoMode(QLineEdit::Password);
@@ -1194,6 +1225,7 @@ void TupServerWindow::editUser()
     if (dialog.exec() == QDialog::Accepted) {
         QString username = usernameEdit->text().trimmed();
         QString name = nameEdit->text().trimmed();
+        QString userClass = classEdit->text().trimmed();
         QString password = passwordEdit->text();
         QString confirmPassword = confirmPasswordEdit->text();
 
@@ -1211,7 +1243,7 @@ void TupServerWindow::editUser()
             hashedPassword = md5.result().toHex();
         }
 
-        bool success = m_dbHandler->updateUser(userId, username, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked());
+        bool success = m_dbHandler->updateUser(userId, username, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked(), userClass);
 
         if (success) {
             appendLog(tr("User '%1' updated successfully").arg(username), "INFO");
@@ -1373,6 +1405,9 @@ void TupServerWindow::createProject()
     QVBoxLayout *availableLayout = new QVBoxLayout();
     QLabel *availableLabel = new QLabel(tr("Available Users:"));
     availableLayout->addWidget(availableLabel);
+    QLineEdit *searchAvailableEdit = new QLineEdit();
+    searchAvailableEdit->setPlaceholderText(tr("Search students..."));
+    availableLayout->addWidget(searchAvailableEdit);
     QListWidget *availableList = new QListWidget();
     availableList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     availableLayout->addWidget(availableList);
@@ -1381,10 +1416,12 @@ void TupServerWindow::createProject()
     // Transfer buttons (center)
     QVBoxLayout *buttonLayout = new QVBoxLayout();
     buttonLayout->addStretch();
-    QPushButton *addCollabButton = new QPushButton(tr("Add >>"));
+    QPushButton *addCollabButton = new QPushButton(" " + tr("Add"));
+    addCollabButton->setIcon(style()->standardIcon(QStyle::SP_ArrowRight));
     addCollabButton->setToolTip(tr("Add selected users as collaborators"));
     buttonLayout->addWidget(addCollabButton);
-    QPushButton *removeCollabButton = new QPushButton(tr("<< Remove"));
+    QPushButton *removeCollabButton = new QPushButton(" " + tr("Remove"));
+    removeCollabButton->setIcon(style()->standardIcon(QStyle::SP_ArrowLeft));
     removeCollabButton->setToolTip(tr("Remove selected collaborators"));
     buttonLayout->addWidget(removeCollabButton);
     buttonLayout->addStretch();
@@ -1399,22 +1436,24 @@ void TupServerWindow::createProject()
     selectedLayout->addWidget(selectedList);
     collaboratorsLayout->addLayout(selectedLayout);
 
-    // Lambda to rebuild available list based on selected owner
-    auto rebuildAvailableList = [&users, availableList, selectedList, ownerCombo]() {
+    // Lambda to rebuild available list based on selected owner and search filter
+    auto rebuildAvailableList = [&users, availableList, selectedList, ownerCombo, searchAvailableEdit]() {
         int currentOwnerId = ownerCombo->currentData().toInt();
-        
+        QString filter = searchAvailableEdit->text().trimmed();
         // Collect already selected user IDs
         QSet<int> selectedIds;
         for (int i = 0; i < selectedList->count(); i++) {
             selectedIds.insert(selectedList->item(i)->data(Qt::UserRole).toInt());
         }
-        
         availableList->clear();
         for (const DatabaseHandler::UserInfo &user : users) {
             if (user.isEnabled && user.userId != currentOwnerId && !selectedIds.contains(user.userId)) {
-                QListWidgetItem *item = new QListWidgetItem(user.username + " (" + user.name + ")");
-                item->setData(Qt::UserRole, user.userId);
-                availableList->addItem(item);
+                QString displayText = user.username + " (" + user.name + ")";
+                if (filter.isEmpty() || displayText.contains(filter, Qt::CaseInsensitive)) {
+                    QListWidgetItem *item = new QListWidgetItem(displayText);
+                    item->setData(Qt::UserRole, user.userId);
+                    availableList->addItem(item);
+                }
             }
         }
     };
@@ -1431,6 +1470,8 @@ void TupServerWindow::createProject()
         }
         rebuildAvailableList();
     });
+    // Filter available list as user types
+    connect(searchAvailableEdit, &QLineEdit::textChanged, rebuildAvailableList);
 
     // Add button: move selected from available to selected
     connect(addCollabButton, &QPushButton::clicked, [availableList, selectedList]() {
@@ -1541,6 +1582,9 @@ void TupServerWindow::manageCollaborators()
     QVBoxLayout *availableLayout = new QVBoxLayout();
     QLabel *availableLabel = new QLabel(tr("Available Users:"));
     availableLayout->addWidget(availableLabel);
+    QLineEdit *searchAvailableEdit = new QLineEdit();
+    searchAvailableEdit->setPlaceholderText(tr("Search students..."));
+    availableLayout->addWidget(searchAvailableEdit);
     QListWidget *availableList = new QListWidget();
     availableList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     availableLayout->addWidget(availableList);
@@ -1549,10 +1593,12 @@ void TupServerWindow::manageCollaborators()
     // Transfer buttons (center)
     QVBoxLayout *buttonLayout = new QVBoxLayout();
     buttonLayout->addStretch();
-    QPushButton *addButton = new QPushButton(tr("Add >>"));
+    QPushButton *addButton = new QPushButton(" " + tr("Add"));
+    addButton->setIcon(style()->standardIcon(QStyle::SP_ArrowRight));
     addButton->setToolTip(tr("Add selected users as collaborators"));
     buttonLayout->addWidget(addButton);
-    QPushButton *removeButton = new QPushButton(tr("<< Remove"));
+    QPushButton *removeButton = new QPushButton(" " + tr("Remove"));
+    removeButton->setIcon(style()->standardIcon(QStyle::SP_ArrowLeft));
     removeButton->setToolTip(tr("Remove selected collaborators"));
     buttonLayout->addWidget(removeButton);
     buttonLayout->addStretch();
@@ -1584,13 +1630,28 @@ void TupServerWindow::manageCollaborators()
         existingCollabIds.insert(collab.userId);
     }
 
+    // Store all available users for filtering
+    QList<QPair<QString, int>> availableUsersData;
     for (const DatabaseHandler::UserInfo &user : users) {
         if (user.isEnabled && user.username != ownerUsername && !existingCollabIds.contains(user.userId)) {
-            QListWidgetItem *item = new QListWidgetItem(user.username + " (" + user.name + ")");
-            item->setData(Qt::UserRole, user.userId);
-            availableList->addItem(item);
+            QString displayText = user.username + " (" + user.name + ")";
+            availableUsersData.append(qMakePair(displayText, user.userId));
         }
     }
+    // Helper to repopulate availableList based on filter
+    auto filterAvailableList = [availableList, &availableUsersData, searchAvailableEdit]() {
+        QString filter = searchAvailableEdit->text().trimmed();
+        availableList->clear();
+        for (const auto &pair : availableUsersData) {
+            if (filter.isEmpty() || pair.first.contains(filter, Qt::CaseInsensitive)) {
+                QListWidgetItem *item = new QListWidgetItem(pair.first);
+                item->setData(Qt::UserRole, pair.second);
+                availableList->addItem(item);
+            }
+        }
+    };
+    filterAvailableList();
+    QObject::connect(searchAvailableEdit, &QLineEdit::textChanged, filterAvailableList);
 
     // Add collaborator logic
     connect(addButton, &QPushButton::clicked, [this, projectId, currentList, availableList]() {
@@ -1843,4 +1904,86 @@ void TupServerWindow::sendBroadcastMessage()
 
         appendLog(tr("Broadcast message sent: %1").arg(message), "INFO");
     }
+}
+
+void TupServerWindow::importUsersFromCsv()
+{
+    QString fileName = QFileDialog::getOpenFileName(this, tr("Select Users File"), QString(), tr("CSV Files (*.csv);;All Files (*)"));
+    if (fileName.isEmpty())
+        return;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("Import Users"), tr("Failed to open file: %1").arg(fileName));
+        return;
+    }
+
+    QTextStream in(&file);
+    QString headerLine = in.readLine();
+    if (headerLine.isNull()) {
+        QMessageBox::warning(this, tr("Import Users"), tr("CSV file is empty."));
+        return;
+    }
+
+    QStringList headers = headerLine.split(",");
+    // Expected: Name, Class, Username, Password, Enabled, Creator
+    int nameIdx = headers.indexOf("Name");
+    int classIdx = headers.indexOf("Class");
+    int usernameIdx = headers.indexOf("Username");
+    int passwordIdx = headers.indexOf("Password");
+    int enabledIdx = headers.indexOf("Enabled");
+    int creatorIdx = headers.indexOf("Creator");
+    if (nameIdx == -1 || classIdx == -1 || usernameIdx == -1 || passwordIdx == -1 || enabledIdx == -1 || creatorIdx == -1) {
+        QMessageBox::warning(this, tr("Import Users"), tr("CSV header must include: Name, Class, Username, Password, Enabled, Creator"));
+        return;
+    }
+
+    QList<QVariantMap> usersToImport;
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.trimmed().isEmpty()) continue;
+        QStringList fields = line.split(",");
+        if (fields.size() < headers.size()) continue;
+        QVariantMap user;
+        user["name"] = fields[nameIdx].trimmed();
+        user["class"] = fields[classIdx].trimmed();
+        user["username"] = fields[usernameIdx].trimmed();
+        user["password"] = fields[passwordIdx].trimmed();
+        user["enabled"] = fields[enabledIdx].trimmed();
+        user["creator"] = fields[creatorIdx].trimmed();
+        usersToImport.append(user);
+    }
+
+    if (usersToImport.isEmpty()) {
+        QMessageBox::information(this, tr("Import Users"), tr("No valid user records found in the file."));
+        return;
+    }
+
+    int insertedCount = 0;
+    for (const QVariantMap &user : usersToImport) {
+        QString username = user["username"].toString();
+        if (username.isEmpty())
+            continue;
+        if (m_dbHandler->usernameExists(username)) {
+            appendLog(tr("Skipped user '%1': username already exists").arg(username), "WARN");
+            continue;
+        }
+        QString name = user["name"].toString();
+        QString password = user["password"].toString();
+        // Hash the password with MD5 to match Add/Edit User logic
+        QCryptographicHash md5(QCryptographicHash::Md5);
+        md5.addData(password.toUtf8());
+        QString hashedPassword = md5.result().toHex();
+        bool enabled = (user["enabled"].toString().toLower() == "true" || user["enabled"].toString() == "1");
+        bool creator = (user["creator"].toString().toLower() == "true" || user["creator"].toString() == "1");
+        QString userClass = user["class"].toString();
+        if (m_dbHandler->addUser(username, name, hashedPassword, enabled, creator, userClass)) {
+            insertedCount++;
+        } else {
+            appendLog(tr("Failed to insert user '%1'").arg(username), "ERROR");
+        }
+    }
+    appendLog(tr("CSV import complete. %1 users inserted.").arg(insertedCount), "INFO");
+    QMessageBox::information(this, tr("Import Users"), tr("Import complete. %1 users inserted.").arg(insertedCount));
+    refreshUsersList();
 }

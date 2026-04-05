@@ -5,8 +5,9 @@
 -- User table
 CREATE TABLE IF NOT EXISTS tupitube_user (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(100),
+    class VARCHAR(50),
+    username VARCHAR(50) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     is_enabled INTEGER DEFAULT 1,
     is_creator INTEGER DEFAULT 1,

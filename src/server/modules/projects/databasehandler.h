@@ -60,6 +60,7 @@ class DatabaseHandler
             QString password;
             bool isEnabled;
             bool isCreator;
+            QString userClass;
         };
 
         enum MediaType { DeskImg = 0, DeskAnim, DeskStory };
@@ -90,8 +91,8 @@ class DatabaseHandler
 
         // User management methods (for classroom administration)
         QList<UserInfo> getAllUsers() const;
-        bool addUser(const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator);
-        bool updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator);
+        bool addUser(const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass);
+        bool updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass);
         bool removeUser(int userId);
         bool usernameExists(const QString &username) const;
 
