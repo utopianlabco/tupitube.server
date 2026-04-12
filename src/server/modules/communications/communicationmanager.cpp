@@ -40,8 +40,8 @@
 //server/core
 #include "server.h"
 #include "connection.h"
-//server/users
-#include "user.h"
+//server/students
+#include "../students/student.h"
 
 #include <QDomDocument>
 #include <QDebug>
@@ -63,7 +63,7 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
     #endif
 
     Connection *cnn = pkg->source();
-    User *user = cnn->user();
+    Student *student = cnn->student();
     
     if (pkg->root() == "communication_chat") {
 
@@ -72,10 +72,10 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
         
         QDomElement element = doc.firstChild().firstChildElement("message");
         QString message = element.text();
-        element.setAttribute("from", user->login());
+        element.setAttribute("from", student->login());
         
         // Save message to database for teacher review
-        m_dbHandler->saveChatMessage(-1, user->uid(), user->login(), message, "chat");
+        m_dbHandler->saveChatMessage(-1, student->uid(), student->login(), message, "chat");
         
         cnn->sendToAll(doc);
         pkg->accept();
@@ -87,10 +87,10 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
         
         QDomElement element = doc.firstChild().firstChildElement("message");
         QString message = element.text();
-        element.setAttribute("from", user->login());
+        element.setAttribute("from", student->login());
         
         // Save notice to database
-        m_dbHandler->saveChatMessage(-1, user->uid(), user->login(), message, "notice");
+        m_dbHandler->saveChatMessage(-1, student->uid(), student->login(), message, "notice");
         
         cnn->sendToAll(doc); //TODO: enviar a todos los clientes del proyecto
         pkg->accept();
@@ -101,10 +101,10 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
         doc.setContent(pkg->xml());
         QDomElement element = doc.firstChild().firstChildElement("message");
         QString message = element.text();
-        element.setAttribute("from", user->login());
+        element.setAttribute("from", student->login());
         
         // Save wall message to database
-        m_dbHandler->saveChatMessage(-1, user->uid(), user->login(), message, "wall");
+        m_dbHandler->saveChatMessage(-1, student->uid(), student->login(), message, "wall");
         
         cnn->sendToAll(doc);
         pkg->accept();

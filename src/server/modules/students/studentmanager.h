@@ -31,36 +31,36 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
-#ifndef USERMANAGER_H_
-#define USERMANAGER_H_
+ #ifndef STUDENTMANAGER_H_
+ #define STUDENTMANAGER_H_
 
 #include "observer.h"
 
 #include <QString>
 #include <QtSql>
 
-class UserManager : public Observer
+class StudentManager : public Observer
 {
     Q_OBJECT
 
     public:
-        explicit UserManager(QObject *parent = nullptr);
-        ~UserManager();
+        explicit StudentManager(QObject *parent = nullptr);
+        ~StudentManager();
 
         void handlePackage(PackageBase *const pkg);
         void closeConnection(Connection *connection);
 
     signals:
-        void userConnected(const QString &username, const QString &ip);
-        void userDisconnected(const QString &username);
+        void studentConnected(const QString &studentname, const QString &ip);
+        void studentDisconnected(const QString &studentname);
         
     private:
-        bool verifyPassword(const QString &username, const QString &password);
-        bool userExists(const QString &username);
-        User *userData(int uid, const QString &name, const QString &username, const QString &password, bool isEnabled, 
+        bool verifyPassword(const QString &studentname, const QString &password);
+        bool studentExists(const QString &studentname);
+        Student *studentData(int uid, const QString &name, const QString &studentname, const QString &password, bool isEnabled, 
                        bool isCreator, bool projectsPrivacy, bool filesPrivacy, bool worksPrivacy);
 
-        User *m_user;
+        Student *m_student;
         QList<QString> m_online;
 };
 

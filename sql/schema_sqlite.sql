@@ -1,21 +1,42 @@
--- TupiTube Server SQLite Schema
+-- TupiTube Server Definitive SQLite Schema
 -- Database: tupitube.db
 -- For classroom sessions with up to 30 students
+-- Merged and updated: April 12, 2026
 
--- User table
-CREATE TABLE IF NOT EXISTS tupitube_user (
-    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+PRAGMA foreign_keys=on;
+
+-- Class table
+CREATE TABLE IF NOT EXISTS class (
+    class_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(50) NOT NULL,         -- e.g., '7B'
+    year INTEGER NOT NULL,             -- e.g., 2026
+    description TEXT
+);
+
+-- Period table
+CREATE TABLE IF NOT EXISTS period (
+    period_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(50) NOT NULL,         -- e.g., 'Semester 1'
+    year INTEGER NOT NULL,             -- e.g., 2026
+    start_date DATE,
+    end_date DATE
+);
+
+-- Student table
+CREATE TABLE IF NOT EXISTS tupitube_student (
+    student_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(100),
-    class VARCHAR(50),
-    username VARCHAR(50) NOT NULL UNIQUE,
+    studentname VARCHAR(50) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     is_enabled INTEGER DEFAULT 1,
     is_creator INTEGER DEFAULT 1,
     projects_public_policy INTEGER DEFAULT 0,
     files_public_policy INTEGER DEFAULT 0,
     works_public_policy INTEGER DEFAULT 0,
+    class_id INTEGER NOT NULL,
     created_at DATETIME DEFAULT (datetime('now')),
-    updated_at DATETIME DEFAULT (datetime('now'))
+    updated_at DATETIME DEFAULT (datetime('now')),
+    FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT
 );
 
 -- Project table
@@ -23,13 +44,27 @@ CREATE TABLE IF NOT EXISTS tupitube_project (
     project_id INTEGER PRIMARY KEY AUTOINCREMENT,
     title VARCHAR(100) NOT NULL,
     description TEXT,
-    owner_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
     filename VARCHAR(255) NOT NULL,
     is_public INTEGER DEFAULT 0,
     is_shared INTEGER DEFAULT 0,
+    class_id INTEGER NOT NULL,
+    period_id INTEGER NOT NULL,
+    group_project INTEGER DEFAULT 0, -- 0: individual, 1: group
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
-    FOREIGN KEY (owner_id) REFERENCES tupitube_user(user_id)
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT,
+    FOREIGN KEY (period_id) REFERENCES period(period_id) ON DELETE RESTRICT
+);
+
+-- Project-Student join table (for group projects)
+CREATE TABLE IF NOT EXISTS project_student (
+    project_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    PRIMARY KEY (project_id, student_id),
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT
 );
 
 -- Collection table (for storyboards and folders)
@@ -40,7 +75,7 @@ CREATE TABLE IF NOT EXISTS tupitube_collection (
     title VARCHAR(100),
     topics TEXT,
     description TEXT,
-    owner_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
     is_public INTEGER DEFAULT 0,
     visits INTEGER DEFAULT 0,
     likes INTEGER DEFAULT 0,
@@ -49,15 +84,15 @@ CREATE TABLE IF NOT EXISTS tupitube_collection (
     slug VARCHAR(100),
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
-    FOREIGN KEY (owner_id) REFERENCES tupitube_user(user_id),
-    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),
-    FOREIGN KEY (parent_id) REFERENCES tupitube_collection(collection_id)
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (parent_id) REFERENCES tupitube_collection(collection_id) ON DELETE RESTRICT
 );
 
 -- Work table (animations, images, frames)
 CREATE TABLE IF NOT EXISTS tupitube_work (
     work_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id INTEGER,
+    student_id INTEGER,
     project_id INTEGER,
     collection_id INTEGER,
     type_id INTEGER,
@@ -78,21 +113,41 @@ CREATE TABLE IF NOT EXISTS tupitube_work (
     uploaded INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
-    FOREIGN KEY (owner_id) REFERENCES tupitube_user(user_id),
-    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),
-    FOREIGN KEY (collection_id) REFERENCES tupitube_collection(collection_id)
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (collection_id) REFERENCES tupitube_collection(collection_id) ON DELETE RESTRICT
 );
 
 -- Collaboration table
 CREATE TABLE IF NOT EXISTS tupitube_collaboration (
     collaboration_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
     project_id INTEGER NOT NULL,
     permission_level INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT (datetime('now')),
-    FOREIGN KEY (user_id) REFERENCES tupitube_user(user_id),
-    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),
-    UNIQUE(user_id, project_id)
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    UNIQUE(student_id, project_id)
+);
+
+-- Grade table
+CREATE TABLE IF NOT EXISTS tupitube_grade (
+    grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    teacher_student_id INTEGER NOT NULL,
+    period_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    grade REAL NOT NULL,
+    comments TEXT,
+    created_at DATETIME DEFAULT (datetime('now')),
+    updated_at DATETIME DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (teacher_student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (period_id) REFERENCES period(period_id) ON DELETE RESTRICT,
+    FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT,
+    UNIQUE (project_id, student_id, teacher_student_id, period_id, class_id)
 );
 
 -- Log table
@@ -108,40 +163,39 @@ CREATE TABLE IF NOT EXISTS tupitube_log (
 CREATE TABLE IF NOT EXISTS tupitube_chat (
     chat_id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER,
-    user_id INTEGER NOT NULL,
-    username VARCHAR(50) NOT NULL,
+    student_id INTEGER NOT NULL,
+    studentname VARCHAR(50) NOT NULL,
     message TEXT NOT NULL,
     message_type VARCHAR(20) DEFAULT 'chat',
     created_at DATETIME DEFAULT (datetime('now')),
-    FOREIGN KEY (user_id) REFERENCES tupitube_user(user_id),
-    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id)
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT
 );
 
--- User table for HumHub compatibility (optional)
-CREATE TABLE IF NOT EXISTS user (
+-- Student table for HumHub compatibility (optional)
+CREATE TABLE IF NOT EXISTS student (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username VARCHAR(50) NOT NULL UNIQUE
+    studentname VARCHAR(50) NOT NULL UNIQUE
 );
 
--- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_project_owner ON tupitube_project(owner_id);
+-- Indexes for new/updated tables
+CREATE INDEX IF NOT EXISTS idx_student_class ON tupitube_student(class_id);
+CREATE INDEX IF NOT EXISTS idx_project_class ON tupitube_project(class_id);
+CREATE INDEX IF NOT EXISTS idx_project_period ON tupitube_project(period_id);
+CREATE INDEX IF NOT EXISTS idx_grade_period ON tupitube_grade(period_id);
+CREATE INDEX IF NOT EXISTS idx_grade_class ON tupitube_grade(class_id);
+CREATE INDEX IF NOT EXISTS idx_project_owner ON tupitube_project(student_id);
 CREATE INDEX IF NOT EXISTS idx_project_filename ON tupitube_project(filename);
-CREATE INDEX IF NOT EXISTS idx_work_owner ON tupitube_work(owner_id);
+CREATE INDEX IF NOT EXISTS idx_work_owner ON tupitube_work(student_id);
 CREATE INDEX IF NOT EXISTS idx_work_project ON tupitube_work(project_id);
-CREATE INDEX IF NOT EXISTS idx_collection_owner ON tupitube_collection(owner_id);
+CREATE INDEX IF NOT EXISTS idx_collection_owner ON tupitube_collection(student_id);
 CREATE INDEX IF NOT EXISTS idx_collection_slug ON tupitube_collection(slug);
-CREATE INDEX IF NOT EXISTS idx_collaboration_user ON tupitube_collaboration(user_id);
+CREATE INDEX IF NOT EXISTS idx_collaboration_student ON tupitube_collaboration(student_id);
 CREATE INDEX IF NOT EXISTS idx_collaboration_project ON tupitube_collaboration(project_id);
-CREATE INDEX IF NOT EXISTS idx_user_username ON tupitube_user(username);
+CREATE INDEX IF NOT EXISTS idx_student_studentname ON tupitube_student(studentname);
 CREATE INDEX IF NOT EXISTS idx_chat_project ON tupitube_chat(project_id);
-CREATE INDEX IF NOT EXISTS idx_chat_user ON tupitube_chat(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_student ON tupitube_chat(student_id);
 CREATE INDEX IF NOT EXISTS idx_chat_created ON tupitube_chat(created_at);
-
--- Insert default admin user (password: admin123)
--- Note: In production, change this password immediately!
-INSERT OR IGNORE INTO tupitube_user (username, name, password, is_enabled, is_creator) 
-VALUES ('admin', 'Administrator', 'admin123', 1, 1);
-
--- Enable WAL mode for better concurrent access (recommended for classroom use)
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
+CREATE INDEX IF NOT EXISTS idx_grade_project ON tupitube_grade(project_id);
+CREATE INDEX IF NOT EXISTS idx_grade_student ON tupitube_grade(student_id);
+CREATE INDEX IF NOT EXISTS idx_grade_teacher ON tupitube_grade(teacher_student_id);

@@ -36,7 +36,7 @@
 
 #include "serverclient.h"
 #include "notification.h"
-#include "user.h"
+#include "../modules/students/student.h"
 
 #include <QThread>
 #include <QTimerEvent>
@@ -72,8 +72,8 @@ class Connection : public QThread
         Client *client() const;
         TcpServer *server() const;
         
-        void setUser(User *user);
-        User *user() const;
+        void setStudent(Student *student);
+        Student *student() const;
         
         void generateSign();
         
@@ -109,7 +109,7 @@ class Connection : public QThread
         QQueue<QString> m_readed;
         QHash<int, QVariant> m_datas;
         QString m_sign;
-        User *m_user;
+        Student *m_student;
 };
 
 #endif

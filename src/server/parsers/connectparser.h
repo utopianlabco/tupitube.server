@@ -47,12 +47,12 @@ class ConnectParser : public QXmlStreamReader
         bool parse();
         bool parse(const QString &xml);
         
-        QString username() const;
+        QString studentname() const;
         QString password() const;
         int clientType() const;
         
     private:
-        QString m_username;
+        QString m_studentname;
         QString m_password1;
         QString m_password2;
         QString m_password3;

@@ -5,13 +5,13 @@ TEMPLATE = lib
 CONFIG += warn_on dll
 QT += sql
 
-HEADERS += user.h \
-           usermanager.h \
+HEADERS += student.h \
+           studentmanager.h \
            ban.h \
            ack.h
 
-SOURCES += user.cpp \
-           usermanager.cpp \
+SOURCES += student.cpp \
+           studentmanager.cpp \
            ban.cpp \
            ack.cpp
 

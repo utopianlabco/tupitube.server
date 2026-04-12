@@ -39,22 +39,22 @@
 /*
 <!-- Answer to valid open request -->
 <server_project version="0">
-        <users>
+        <students>
             login1,login2,login3,etc
-        </users> 
+        </students> 
         <data>
             <![CDATA[TUP project encoded with Base64]]>
         </data>
 </server_project>
 */
 
-Project::Project(const QString &users, const QString &projectPath): Package()
+Project::Project(const QString &students, const QString &projectPath): Package()
 {
     QDomElement root = createElement("server_project");
     root.setAttribute("version", "0");
     appendChild(root);
 
-    root.appendChild(createElement("users")).appendChild(createTextNode(users));
+    root.appendChild(createElement("students")).appendChild(createTextNode(students));
 
     QFile file(projectPath);
     file.open(QIODevice::ReadOnly);

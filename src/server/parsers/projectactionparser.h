@@ -56,7 +56,7 @@ class ProjectActionParser : public QXmlStreamReader
         QColor bgcolor() const;
         QSize dimension() const;
         int fps() const;
-        QMultiHash<int, QString> users();
+        QMultiHash<int, QString> students();
 
         QString package(QString package, const QString &date);
         
@@ -67,7 +67,7 @@ class ProjectActionParser : public QXmlStreamReader
         QColor m_bgcolor;
         QSize m_dimension;
         int m_fps;
-        QMultiHash<int, QString> m_users;
+        QMultiHash<int, QString> m_students;
         int m_type;
 };
 

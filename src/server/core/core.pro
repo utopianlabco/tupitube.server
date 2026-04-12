@@ -6,7 +6,7 @@ TEMPLATE = lib
 CONFIG += warn_on dll
 QT += network sql
 
-INCLUDEPATH += ../modules/users ../modules/backups ../modules/ban ../modules/communications
+INCLUDEPATH += ../modules/students ../modules/backups ../modules/ban ../modules/communications
 
 HEADERS += socketbase.h \
            connection.h \

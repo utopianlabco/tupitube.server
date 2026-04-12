@@ -60,31 +60,31 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    QString userPath = repoDir + "/users/" + QString::number(uid) + "/";
+    QString studentPath = repoDir + "/students/" + QString::number(uid) + "/";
 
-    QDir repository(userPath);
+    QDir repository(studentPath);
     if (!repository.exists()) {
         #ifdef TUP_DEBUG
-            qWarning() << "[FileManager::save()] - Creating user directories:" << userPath;
+            qWarning() << "[FileManager::save()] - Creating student directories:" << studentPath;
         #endif
         // Use mkpath to create the entire directory tree recursively
-        bool ok = repository.mkpath(userPath + "projects");
-        ok = ok && repository.mkpath(userPath + "animations/thumbnails");
-        ok = ok && repository.mkpath(userPath + "storyboards/thumbnails");
-        ok = ok && repository.mkpath(userPath + "images/thumbnails");
+        bool ok = repository.mkpath(studentPath + "projects");
+        ok = ok && repository.mkpath(studentPath + "animations/thumbnails");
+        ok = ok && repository.mkpath(studentPath + "storyboards/thumbnails");
+        ok = ok && repository.mkpath(studentPath + "images/thumbnails");
 
         #ifdef TUP_DEBUG
             if (ok)
-                qWarning() << "[FileManager::save()] - User directories created successfully!";
+                qWarning() << "[FileManager::save()] - Student directories created successfully!";
             else
-                qDebug() << "[FileManager::save()] - Failed to create user directories!";
+                qDebug() << "[FileManager::save()] - Failed to create student directories!";
         #endif
         
         if (!ok)
             return false;
     }
 
-    QString absolutePath = userPath + "projects/" + filename + ".tup";
+    QString absolutePath = studentPath + "projects/" + filename + ".tup";
 
     // Ensure CACHE_DIR doesn't have trailing slash before adding uid
     QString cacheBase = CACHE_DIR;
@@ -215,7 +215,7 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    QString absolutePath = repoDir + "/users/" + uid + "/projects/" + filename + ".tup";
+    QString absolutePath = repoDir + "/students/" + uid + "/projects/" + filename + ".tup";
 
     #ifdef TUP_DEBUG
         qWarning() << "[FileManager::load()] - Loading project -> " << absolutePath;
@@ -360,25 +360,25 @@ bool FileManager::createEmptyProjectFile(const QString &projectName, const QStri
     project->setOwner(ownerId);
     project->setOpen(true);
 
-    // Create user directories
+    // Create student directories
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    QString userPath = repoDir + "/users/" + QString::number(ownerId) + "/";
+    QString studentPath = repoDir + "/students/" + QString::number(ownerId) + "/";
 
-    QDir repository(userPath);
+    QDir repository(studentPath);
     if (!repository.exists()) {
         #ifdef TUP_DEBUG
-            qWarning() << "[FileManager::createEmptyProjectFile()] - Creating user directories:" << userPath;
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Creating student directories:" << studentPath;
         #endif
-        bool ok = repository.mkpath(userPath + "projects");
-        ok = ok && repository.mkpath(userPath + "animations/thumbnails");
-        ok = ok && repository.mkpath(userPath + "storyboards/thumbnails");
-        ok = ok && repository.mkpath(userPath + "images/thumbnails");
+        bool ok = repository.mkpath(studentPath + "projects");
+        ok = ok && repository.mkpath(studentPath + "animations/thumbnails");
+        ok = ok && repository.mkpath(studentPath + "storyboards/thumbnails");
+        ok = ok && repository.mkpath(studentPath + "images/thumbnails");
 
         if (!ok) {
             #ifdef TUP_DEBUG
-                qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create user directories!";
+                qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create student directories!";
             #endif
             delete project;
             return false;
@@ -462,7 +462,7 @@ bool FileManager::createEmptyProjectFile(const QString &projectName, const QStri
     }
 
     // Package into .tup file
-    QString absolutePath = userPath + "projects/" + filename + ".tup";
+    QString absolutePath = studentPath + "projects/" + filename + ".tup";
     PackageHandler packageHandler;
     bool isOk = packageHandler.makePackage(cachePath, absolutePath, QString::number(ownerId));
 

@@ -36,7 +36,7 @@
 
 #include "tupproject.h"
 #include "notification.h"
-#include "user.h"
+#include "../students/student.h"
 
 #include <QTimer>
 #include <QList>
@@ -50,15 +50,15 @@ class NetProject : public TupProject
         NetProject(QObject *parent = nullptr);
         ~NetProject();
 
-        void setProjectParams(int userID);
+        void setProjectParams(int studentID);
 
         void resetTimer();
-        bool addUser(int userID);
-        void setUsers(const QList<int> &users);
+        bool addStudent(int studentID);
+        void setStudents(const QList<int> &students);
         void setFilename(const QString &file);
         QString filename() const;
         
-        bool isOwner(int userID);
+        bool isOwner(int studentID);
         QString date() const;
         void setOwner(int owner);
         int owner() const;
@@ -71,7 +71,7 @@ class NetProject : public TupProject
         QString m_date;
         QString m_file;
         int m_owner;
-        QList<int> m_users;
+        QList<int> m_students;
         int m_timerId;
     
     public slots:

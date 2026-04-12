@@ -7,7 +7,7 @@ exists ($$PRI_FILE) {
 
 QT += network xml sql
 
-INCLUDEPATH += ../server/base ../server/core ../server/packages ../server/parsers ../server/modules/users ../server/modules/projects ../server/modules/backups ../server/modules/ban
+INCLUDEPATH += ../server/base ../server/core ../server/packages ../server/parsers ../server/modules/students ../server/modules/projects ../server/modules/backups ../server/modules/ban
 
 LIB_DIR = ../lib
 include($$LIB_DIR/lib.pri)

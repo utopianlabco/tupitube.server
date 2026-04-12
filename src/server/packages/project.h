@@ -39,7 +39,7 @@
 class Project : public Package
 {
     public:
-        Project(const QString &users, const QString &projectPath);
+        Project(const QString &students, const QString &projectPath);
         ~Project();
 };
 

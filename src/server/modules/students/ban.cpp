@@ -35,12 +35,12 @@
 
 Ban::Ban(const QString &login, int type) : QDomDocument()
 {
-    QDomElement root = createElement("user_denied");
+    QDomElement root = createElement("student_denied");
 
-    QDomElement user = createElement("login");
+    QDomElement student = createElement("login");
     QDomText loginText = createTextNode(login);
-    user.appendChild(loginText);
-    root.appendChild(user);
+    student.appendChild(loginText);
+    root.appendChild(student);
 
     QDomElement dom = createElement("type");
     QDomText typeText = createTextNode(QString::number(type));

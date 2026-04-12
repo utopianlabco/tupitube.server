@@ -50,7 +50,7 @@ QString DatabaseHandler::incomingFolderID(const QString &uid, const QString &typ
 {
     QString folderID = "";
     QString typeKey = type.toLower();
-    QString sql = "SELECT collection_id FROM tupitube_collection WHERE owner_id=" + uid
+    QString sql = "SELECT collection_id FROM tupitube_collection WHERE student_id=" + uid
             + " AND title='Incoming " + type + "' AND type='" + typeKey + "'";
     QSqlQuery query(sql);
 
@@ -72,7 +72,7 @@ QString DatabaseHandler::worksPublicPolicy(const QString &owner) const
         return "true";
 
     QString isPublic = "false";
-    QString sql = "SELECT works_public_policy FROM tupitube_user WHERE user_id=" + owner;
+    QString sql = "SELECT works_public_policy FROM tupitube_student WHERE student_id=" + owner;
     QSqlQuery query(sql);
     if (query.next() && query.first())
         isPublic = query.value(0).toString();
@@ -111,7 +111,7 @@ bool DatabaseHandler::addProject(const NetProject *project)
     QString isPublic = "false";
     QString isShared = "false";
 
-    QString sql = "SELECT files_public_policy, projects_public_policy FROM tupitube_user WHERE user_id=" + owner;
+    QString sql = "SELECT files_public_policy, projects_public_policy FROM tupitube_student WHERE student_id=" + owner;
     QSqlQuery query(sql);
     if (query.next() && query.first()) {
         isPublic = query.value(0).toString();
@@ -123,16 +123,25 @@ bool DatabaseHandler::addProject(const NetProject *project)
         qDebug() << "[DatabaseHandler::addProject()] - SQL: " << sql;
     #endif
 
+    // New fields for schema compliance
+    int classId = project->property("class_id").toInt();
+    int periodId = project->property("period_id").toInt();
+    bool groupProject = project->property("group_project").toBool();
+    QList<int> studentIds = project->property("student_ids").value<QList<int>>();
+
     QString name = project->getName().replace("'", "\\'");
     QString description = project->getDescription().replace("'", "\\'");
 
-    sql = "INSERT INTO tupitube_project (title, description, owner_id, filename, is_public, is_shared, created_at, updated_at) VALUES(";
+    sql = "INSERT INTO tupitube_project (title, description, student_id, filename, is_public, is_shared, class_id, period_id, group_project, created_at, updated_at) VALUES(";
     sql += "'" + name + "', ";
     sql += "'" + description + "', ";
     sql += owner + ", ";
     sql += "'" + project->filename() + "', ";
     sql += isPublic + ", ";
-    sql += isShared + ", ";    
+    sql += isShared + ", ";
+    sql += QString::number(classId) + ", ";
+    sql += QString::number(periodId) + ", ";
+    sql += (groupProject ? "1" : "0") + QString(", ");
     sql += "datetime('now'), ";
     sql += "datetime('now'))";
 
@@ -140,24 +149,39 @@ bool DatabaseHandler::addProject(const NetProject *project)
         qDebug() << "DatabaseHandler::addProject() SQL: " << sql;
     #endif
 
-    bool isOk = query.exec(sql); 
- 
-    return isOk;
+    bool isOk = query.exec(sql);
+    if (!isOk) return false;
+
+    // If group project, insert into project_student
+    if (groupProject && !studentIds.isEmpty()) {
+        // Get the last inserted project_id
+        int projectId = -1;
+        QSqlQuery lastIdQuery("SELECT last_insert_rowid()");
+        if (lastIdQuery.next()) {
+            projectId = lastIdQuery.value(0).toInt();
+        }
+        for (int studentId : studentIds) {
+            QSqlQuery psQuery;
+            QString psSql = QString("INSERT INTO project_student (project_id, student_id) VALUES (%1, %2)").arg(projectId).arg(studentId);
+            psQuery.exec(psSql);
+        }
+    }
+    return true;
 }
 
-QString DatabaseHandler::getUserID(const QString &username) const
+QString DatabaseHandler::getStudentID(const QString &studentname) const
 {
     QString uid = "1";
 
-    if (username.compare("anonymous") != 0) {
+    if (studentname.compare("anonymous") != 0) {
         QSqlQuery query;
-        query.exec("SELECT id FROM user WHERE username='" + username + "'");
+        query.exec("SELECT id FROM student WHERE studentname='" + studentname + "'");
         if (query.next()) {
             uid = query.value(0).toString();
-            qDebug() << "[DatabaseHandler::getUserID()] - UID: " <<  uid;
+            qDebug() << "[DatabaseHandler::getStudentID()] - UID: " <<  uid;
         } else {
             #ifdef TUP_DEBUG
-                qDebug() << "[DatabaseHandler::getUserID()] - Fatal Error: Invalid username -> " << username;
+                qDebug() << "[DatabaseHandler::getStudentID()] - Fatal Error: Invalid studentname -> " << studentname;
             #endif
         }
     }
@@ -181,7 +205,7 @@ bool DatabaseHandler::addWork(const QString &projectID, const QString &type, con
         collectionID = incomingFolderID(owner, "Animations");
     } else if (type.compare("image") == 0) {
         collectionID = incomingFolderID(owner, "Images");
-    } 
+    }
 
     QString isPublic = worksPublicPolicy(owner);
 
@@ -189,17 +213,25 @@ bool DatabaseHandler::addWork(const QString &projectID, const QString &type, con
     QString workTopics = topics;
     QString workDescription = desc;
 
-    QString sql = "INSERT INTO tupi_work (project_id, collection_id, type, title, topics, description, owner_id, filename, is_public, portrait, created_at, updated_at) VALUES(";
-    sql += "'" + projectKey(projectID) + "', ";
-    sql += "'" + collectionID + "', ";
+    // Updated for new schema: type_id, tags, enabled, visits, duration, mobile, rendered, uploaded
+    QString sql = "INSERT INTO tupitube_work (project_id, collection_id, type_id, type, title, content, topics, tags, description, student_id, filename, is_public, enabled, visits, duration, portrait, mobile, rendered, uploaded, created_at, updated_at) VALUES(";
+    sql += projectKey(projectID) + ", ";
+    sql += collectionID + ", ";
+    sql += "NULL, "; // type_id (not provided)
     sql += "'" + type + "', ";
     sql += "'" + workTitle.replace("'", "''") + "', ";
+    sql += "NULL, "; // content (not provided)
     sql += "'" + workTopics.replace("'", "") + "', ";
+    sql += "'', "; // tags (not provided)
     sql += "'" + workDescription.replace("'", "''") + "', ";
     sql += owner + ", ";
     sql += "'" + filename + "', ";
     sql += isPublic + ", ";
+    sql += "1, "; // enabled
+    sql += "0, "; // visits
+    sql += "0, "; // duration
     sql += isPortrait + ", ";
+    sql += "0, 0, 0, "; // mobile, rendered, uploaded
     sql += "datetime('now'), ";
     sql += "datetime('now'))";
 
@@ -229,35 +261,41 @@ bool DatabaseHandler::addStoryFrame(const QString &storyboard, const QString &id
         return false;
     }
 
-    QString isPublic = worksPublicPolicy(owner);
+        QString isPublic = worksPublicPolicy(owner);
 
-    QString workTitle = title;
-    QString workTopics = topics;
-    QString workDescription = description;
+        QString workTitle = title;
+        QString workTopics = topics;
+        QString workDescription = description;
 
-    QString sql = "INSERT INTO tupitube_work (project_id, collection_id, type, title, topics, description, owner_id, filename, is_public, visits, created_at, updated_at, duration) VALUES(";
-    sql += projectID + ", ";
-    sql += storyboard + ", ";
-    sql += "'frame', ";
-    sql += "'" + workTitle.replace("'", "\\'") + "', ";
-    sql += "'" + workTopics.replace("'", "") + "', ";
-    sql += "'" + workDescription.replace("'", "\\'") + "', ";
-    sql += owner + ", ";
-    sql += "'" + filename + "', ";
-    sql += isPublic + ", ";
-    sql += "0, ";
-    sql += "datetime('now'), ";
-    sql += "datetime('now'), ";
-    sql += "'" + duration + "')";
+        // Updated for new schema
+        QString sql = "INSERT INTO tupitube_work (project_id, collection_id, type_id, type, title, content, topics, tags, description, student_id, filename, is_public, enabled, visits, duration, portrait, mobile, rendered, uploaded, created_at, updated_at) VALUES(";
+        sql += projectID + ", ";
+        sql += storyboard + ", ";
+        sql += "NULL, "; // type_id
+        sql += "'frame', ";
+        sql += "'" + workTitle.replace("'", "\\'") + "', ";
+        sql += "NULL, "; // content
+        sql += "'" + workTopics.replace("'", "") + "', ";
+        sql += "'', "; // tags
+        sql += "'" + workDescription.replace("'", "\\'") + "', ";
+        sql += owner + ", ";
+        sql += "'" + filename + "', ";
+        sql += isPublic + ", ";
+        sql += "1, "; // enabled
+        sql += "0, "; // visits
+        sql += "'" + duration + "', ";
+        sql += "0, 0, 0, 0, "; // portrait, mobile, rendered, uploaded
+        sql += "datetime('now'), ";
+        sql += "datetime('now'))";
 
-    QSqlQuery query;
-    bool isOk = query.exec(sql);
+        QSqlQuery query;
+        bool isOk = query.exec(sql);
 
-    #ifdef TUP_DEBUG
-           qWarning() << "[DatabaseHandler::addStoryFrame()] - SQL: " << sql;
-    #endif
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::addStoryFrame()] - SQL: " << sql;
+        #endif
 
-    return isOk;
+        return isOk;
 }
 
 bool DatabaseHandler::addStoryboard(const QString &id, const QString &owner, const QString &title, const QString &topics, const QString &description, const QString &path)
@@ -275,7 +313,7 @@ bool DatabaseHandler::addStoryboard(const QString &id, const QString &owner, con
 
     if (incomingFolder.length() == 0) {
         #ifdef TUP_DEBUG
-               qDebug() << "[DatabaseHandler::addStoryboard()] - Fatal Error: Storyboard incoming folder doesn't exist for user " << owner;
+               qDebug() << "[DatabaseHandler::addStoryboard()] - Fatal Error: Storyboard incoming folder doesn't exist for student " << owner;
         #endif
         return false;
     }
@@ -297,34 +335,34 @@ bool DatabaseHandler::addStoryboard(const QString &id, const QString &owner, con
     QString workTopics = topics;
     QString workDescription = description;
 
-    QString sql = "INSERT INTO tupitube_collection (parent_id, type, title, topics, description, owner_id, is_public, visits, likes, project_id, path, created_at, updated_at, slug) VALUES(";
-    sql += incomingFolder + ", "; 
-    sql += "'story', ";
-    sql += "'" + workTitle.replace("'", "\\'") + "', ";
-    sql += "'" + workTopics.replace("'", "") + "', ";
-    sql += "'" + workDescription.replace("'", "\\'") + "', ";
-    sql += owner + ", ";
-    sql += isPublic + ", ";
-    sql += "0, 0, ";
-    sql += projectID + ", ";
-    sql += "'" + path + "', ";
-    sql += "datetime('now'), ";
-    sql += "datetime('now'), ";
-    sql += "'" +  slug + "')";
+        QString sql = "INSERT INTO tupitube_collection (parent_id, type, title, topics, description, student_id, is_public, visits, likes, project_id, path, created_at, updated_at, slug) VALUES(";
+        sql += incomingFolder + ", ";
+        sql += "'story', ";
+        sql += "'" + workTitle.replace("'", "\\'") + "', ";
+        sql += "'" + workTopics.replace("'", "") + "', ";
+        sql += "'" + workDescription.replace("'", "\\'") + "', ";
+        sql += owner + ", ";
+        sql += isPublic + ", ";
+        sql += "0, 0, ";
+        sql += projectID + ", ";
+        sql += "'" + path + "', ";
+        sql += "datetime('now'), ";
+        sql += "datetime('now'), ";
+        sql += "'" +  slug + "')";
 
-    QSqlQuery query;
-    bool isOk = query.exec(sql);
+        QSqlQuery query;
+        bool isOk = query.exec(sql);
 
-    #ifdef TUP_DEBUG
-           qWarning() << "[DatabaseHandler::addStoryboard()] - SQL: " << sql;
-    #endif
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::addStoryboard()] - SQL: " << sql;
+        #endif
 
-    return isOk;
+        return isOk;
 }
 
 bool DatabaseHandler::slugExists(const QString &slug, const QString &owner)
 {
-    QString sql = "SELECT count(*) FROM tupitube_collection WHERE slug='" + slug + "' AND owner_id=" + owner;
+    QString sql = "SELECT count(*) FROM tupitube_collection WHERE slug='" + slug + "' AND student_id=" + owner;
 
     int count = -1; 
     QSqlQuery query = QSqlQuery(sql);
@@ -345,7 +383,7 @@ bool DatabaseHandler::slugExists(const QString &slug, const QString &owner)
 QString DatabaseHandler::storyboardID(const QString &uid, const QString &directory) const
 {
     QString id = "-1";
-    QString sql = "SELECT collection_id FROM tupitube_collection WHERE owner_id=" + uid + " AND path ='" + directory + "'";
+    QString sql = "SELECT collection_id FROM tupitube_collection WHERE student_id=" + uid + " AND path ='" + directory + "'";
 
     QSqlQuery query = QSqlQuery(sql);
     if (query.next() && query.first())
@@ -359,41 +397,42 @@ QString DatabaseHandler::storyboardID(const QString &uid, const QString &directo
     return id;
 }
 
-QList< DatabaseHandler::ProjectInfo> DatabaseHandler::userProjects(int userID, const QString &login)
+QList< DatabaseHandler::ProjectInfo> DatabaseHandler::studentProjects(int studentID, const QString &login)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::userProjects()]";
+        qDebug() << "[DatabaseHandler::studentProjects()]";
     #endif
 
     QList<DatabaseHandler::ProjectInfo> list;
-
-    QString sql = "SELECT title, description, filename, created_at FROM tupitube_project WHERE owner_id=" + QString::number(userID) + " ORDER BY created_at DESC";
+    QString sql = "SELECT p.title, p.description, p.filename, p.created_at, p.class_id, c.name, p.period_id, per.name, p.group_project "
+                  "FROM tupitube_project p "
+                  "LEFT JOIN class c ON p.class_id = c.class_id "
+                  "LEFT JOIN period per ON p.period_id = per.period_id "
+                  "WHERE p.student_id=" + QString::number(studentID) + " ORDER BY p.created_at DESC";
     QSqlQuery query(sql);
-    QString name = "";
-    QString description = "";
-    QString date = "";
-
     while (query.next()) {
-           DatabaseHandler::ProjectInfo record;
-           record.title = query.value(0).toString();
-           record.owner = login; 
-           record.description = query.value(1).toString();
-           record.file = query.value(2).toString();
-           QDateTime date = query.value(3).toDateTime();
-           record.date = date.toString("dd/MM/yyyy hh:mm"); 
-
-           list.append(record);
+        DatabaseHandler::ProjectInfo record;
+        record.title = query.value(0).toString();
+        record.owner = login;
+        record.description = query.value(1).toString();
+        record.file = query.value(2).toString();
+        QDateTime date = query.value(3).toDateTime();
+        record.date = date.toString("dd/MM/yyyy hh:mm");
+        record.classId = query.value(4).toInt();
+        record.className = query.value(5).toString();
+        record.periodId = query.value(6).toInt();
+        record.periodName = query.value(7).toString();
+        record.groupProject = query.value(8).toBool();
+        list.append(record);
     }
     query.clear();
-
     #ifdef TUP_DEBUG
-           qWarning() << "[DatabaseHandler::userProjects()] - SQL: " << sql;
+        qWarning() << "[DatabaseHandler::studentProjects()] - SQL: " << sql;
     #endif
-
     return list;
 }
 
-QList< DatabaseHandler::ProjectInfo> DatabaseHandler::partnerProjects(int userID)
+QList< DatabaseHandler::ProjectInfo> DatabaseHandler::partnerProjects(int studentID)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[DatabaseHandler::partnerProjects()]";
@@ -402,7 +441,7 @@ QList< DatabaseHandler::ProjectInfo> DatabaseHandler::partnerProjects(int userID
     QList<DatabaseHandler::ProjectInfo> list;
     QList<QString> projects;
 
-    QString sql = "SELECT project_id FROM tupitube_collaboration WHERE user_id=" + QString::number(userID);
+    QString sql = "SELECT project_id FROM tupitube_collaboration WHERE student_id=" + QString::number(studentID);
     QSqlQuery query(sql);
     while (query.next()) {
            QString projectID = query.value(0).toString();
@@ -415,7 +454,7 @@ QList< DatabaseHandler::ProjectInfo> DatabaseHandler::partnerProjects(int userID
     #endif
 
     for (int i=0; i < projects.size(); i++) {
-         QSqlQuery query("SELECT title, description, owner_id, filename, created_at FROM tupitube_project WHERE project_id=" + projects.at(i));
+         QSqlQuery query("SELECT title, description, student_id, filename, created_at FROM tupitube_project WHERE project_id=" + projects.at(i));
          QString name = "";
          QString description = "";
          QString date = "";
@@ -425,7 +464,7 @@ QList< DatabaseHandler::ProjectInfo> DatabaseHandler::partnerProjects(int userID
                 record.title = query.value(0).toString();
                 record.description = query.value(1).toString();
                 QString owner = query.value(2).toString();
-                record.owner = userLogin(owner);
+                record.owner = studentLogin(owner);
                 record.file = query.value(3).toString();
                 QDateTime date = query.value(4).toDateTime();
                 record.date = date.toString("dd/MM/yyyy hh:mm"); 
@@ -442,11 +481,11 @@ QList< DatabaseHandler::ProjectInfo> DatabaseHandler::partnerProjects(int userID
     return list;
 }
 
-bool DatabaseHandler::accessIsConfirmed(const QString &projectID, int userID)
+bool DatabaseHandler::accessIsConfirmed(const QString &projectID, int studentID)
 {
-    QString uid = QString::number(userID);
+    QString uid = QString::number(studentID);
 
-    QString sql = "SELECT count(*) FROM tupitube_project WHERE project_id=" + projectID + " AND owner_id=" + uid;
+    QString sql = "SELECT count(*) FROM tupitube_project WHERE project_id=" + projectID + " AND student_id=" + uid;
     QSqlQuery query(sql);
 
     #ifdef TUP_DEBUG
@@ -460,7 +499,7 @@ bool DatabaseHandler::accessIsConfirmed(const QString &projectID, int userID)
             return true;
     }
 
-    sql = "SELECT count(*) FROM tupitube_collaboration WHERE user_id=" + uid + " AND project_id=" + projectID;
+    sql = "SELECT count(*) FROM tupitube_collaboration WHERE student_id=" + uid + " AND project_id=" + projectID;
     query = QSqlQuery(sql);
     if (query.first()) {
         int count = query.value(0).toInt();
@@ -475,35 +514,35 @@ bool DatabaseHandler::accessIsConfirmed(const QString &projectID, int userID)
     return false;
 }
 
-QString DatabaseHandler::userLogin(const QString &owner) const
+QString DatabaseHandler::studentLogin(const QString &owner) const
 {
     QString login = "unknown";
  
-    QString sql = "SELECT username FROM tupitube_user WHERE user_id=" + owner;
+    QString sql = "SELECT studentname FROM tupitube_student WHERE student_id=" + owner;
     QSqlQuery query(sql);
     if (query.first())
         login = query.value(0).toString();
     query.clear();
 
     #ifdef TUP_DEBUG
-           qWarning() << "[DatabaseHandler::userLogin()] - SQL: " << sql;
+           qWarning() << "[DatabaseHandler::studentLogin()] - SQL: " << sql;
     #endif
 
     return login;
 }
 
-QString DatabaseHandler::userID(const QString &login) const
+QString DatabaseHandler::studentID(const QString &login) const
 {
     QString id = "unknown";
 
-    QString sql = "SELECT user_id FROM tupitube_user WHERE username='" + login + "'";
+    QString sql = "SELECT student_id FROM tupitube_student WHERE studentname='" + login + "'";
     QSqlQuery query(sql);
     if (query.first())
         id = query.value(0).toString();
     query.clear();
 
     #ifdef TUP_DEBUG
-           qWarning() << "[DatabaseHandler::userID()] - SQL: " << sql;
+           qWarning() << "[DatabaseHandler::studentID()] - SQL: " << sql;
     #endif
 
     return id;
@@ -515,7 +554,7 @@ QString DatabaseHandler::exists(const QString &filename, const QString &ownerID)
         qDebug() << "[DatabaseHandler::exists()]";
     #endif
 
-    QString sql = "SELECT project_id FROM tupitube_project WHERE filename='" + filename + "' AND owner_id=" + ownerID;
+    QString sql = "SELECT project_id FROM tupitube_project WHERE filename='" + filename + "' AND student_id=" + ownerID;
     QSqlQuery query(sql);
     QString id = "";
     if (query.first())
@@ -568,137 +607,162 @@ bool DatabaseHandler::addLog(const QString &type, const QString &filename, const
     return isOk;
 }
 
-QList<DatabaseHandler::UserInfo> DatabaseHandler::getAllUsers() const
+QList<DatabaseHandler::StudentInfo> DatabaseHandler::getAllStudents() const
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::getAllUsers()]";
+        qDebug() << "[DatabaseHandler::getAllStudents()]";
     #endif
 
-    QList<UserInfo> users;
-    QString sql = "SELECT user_id, name, class, username, password, is_enabled, is_creator, projects_public_policy, files_public_policy, works_public_policy, created_at, updated_at FROM tupitube_user ORDER BY username";
+    QList<StudentInfo> students;
+    QString sql = "SELECT u.student_id, u.name, u.class_id, c.name as class_name, u.studentname, u.password, u.is_enabled, u.is_creator FROM tupitube_student u LEFT JOIN class c ON u.class_id = c.class_id ORDER BY u.studentname";
     QSqlQuery query(sql);
 
     int rowCount = 0;
     while (query.next()) {
-        UserInfo user;
-        user.userId    = query.value(0).toInt();
-        user.name      = query.value(1).toString();
-        user.userClass = query.value(2).toString();
-        user.username  = query.value(3).toString();
-        user.password  = query.value(4).toString();
-        user.isEnabled = query.value(5).toBool();
-        user.isCreator = query.value(6).toBool();
-        // If you add more fields to UserInfo, map them here as well
-        users.append(user);
-        // #ifdef TUP_DEBUG
-        //     qDebug() << "[getAllUsers] Row" << rowCount << ":"
-        //              << user.userId << user.name << user.userClass << user.username << user.password
-        //              << user.isEnabled << user.isCreator;
-        // #endif
+        StudentInfo student;
+        student.studentId    = query.value(0).toInt();
+        student.name      = query.value(1).toString();
+        student.classId   = query.value(2).toInt();
+        student.className = query.value(3).toString();
+        student.studentname  = query.value(4).toString();
+        student.password  = query.value(5).toString();
+        student.isEnabled = query.value(6).toBool();
+        student.isCreator = query.value(7).toBool();
+        students.append(student);
         ++rowCount;
     }
     #ifdef TUP_DEBUG
-    qDebug() << "[getAllUsers] Total rows found:" << rowCount;
+    qDebug() << "[getAllStudents] Total rows found:" << rowCount;
     #endif
 
-    return users;
+    return students;
 }
 
-bool DatabaseHandler::addUser(const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass)
+bool DatabaseHandler::addStudent(const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::addUser()] - username:" << username;
+        qDebug() << "[DatabaseHandler::addStudent()] - studentname:" << studentname;
     #endif
 
-    if (usernameExists(username)) {
+    if (studentnameExists(studentname)) {
         #ifdef TUP_DEBUG
-            qDebug() << "[DatabaseHandler::addUser()] - Username already exists:" << username;
+            qDebug() << "[DatabaseHandler::addStudent()] - Studentname already exists:" << studentname;
         #endif
         return false;
     }
 
-    QString sql = "INSERT INTO tupitube_user (username, name, password, is_enabled, is_creator, class) VALUES (";
-    sql += "'" + username + "', ";
+    // studentClass is now expected to be the class name; look up class_id
+    int classId = -1;
+    QSqlQuery classQuery;
+    classQuery.prepare("SELECT class_id FROM class WHERE name = ?");
+    classQuery.addBindValue(studentClass);
+    if (classQuery.exec() && classQuery.next()) {
+        classId = classQuery.value(0).toInt();
+    } else {
+        // Optionally, insert the class if it doesn't exist
+        QSqlQuery insertClass;
+        insertClass.prepare("INSERT INTO class (name, year) VALUES (?, strftime('%Y', 'now'))");
+        insertClass.addBindValue(studentClass);
+        if (insertClass.exec()) {
+            classId = insertClass.lastInsertId().toInt();
+        }
+    }
+    if (classId == -1) return false;
+    QString sql = "INSERT INTO tupitube_student (studentname, name, password, is_enabled, is_creator, class_id) VALUES (";
+    sql += "'" + studentname + "', ";
     sql += "'" + name + "', ";
     sql += "'" + password + "', ";
     sql += QString::number(isEnabled ? 1 : 0) + ", ";
     sql += QString::number(isCreator ? 1 : 0) + ", ";
-    QString safeClass = userClass;
-    safeClass.replace("'", "''");
-    sql += "'" + safeClass + "'";
+    sql += QString::number(classId);
     sql += ")";
 
     QSqlQuery query;
     bool isOk = query.exec(sql);
 
     #ifdef TUP_DEBUG
-        qWarning() << "[DatabaseHandler::addUser()] - SQL:" << sql;
+        qWarning() << "[DatabaseHandler::addStudent()] - SQL:" << sql;
         if (!isOk)
-            qWarning() << "[DatabaseHandler::addUser()] - Error:" << query.lastError().text();
+            qWarning() << "[DatabaseHandler::addStudent()] - Error:" << query.lastError().text();
     #endif
 
     return isOk;
 }
 
-bool DatabaseHandler::updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass)
+bool DatabaseHandler::updateStudent(int studentId, const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::updateUser()] - userId:" << userId;
+        qDebug() << "[DatabaseHandler::updateStudent()] - studentId:" << studentId;
     #endif
 
-    QString sql = "UPDATE tupitube_user SET ";
-    sql += "username = '" + username + "', ";
+    // studentClass is now expected to be the class name; look up class_id
+    int classId = -1;
+    QSqlQuery classQuery;
+    classQuery.prepare("SELECT class_id FROM class WHERE name = ?");
+    classQuery.addBindValue(studentClass);
+    if (classQuery.exec() && classQuery.next()) {
+        classId = classQuery.value(0).toInt();
+    } else {
+        // Optionally, insert the class if it doesn't exist
+        QSqlQuery insertClass;
+        insertClass.prepare("INSERT INTO class (name, year) VALUES (?, strftime('%Y', 'now'))");
+        insertClass.addBindValue(studentClass);
+        if (insertClass.exec()) {
+            classId = insertClass.lastInsertId().toInt();
+        }
+    }
+    if (classId == -1) return false;
+    QString sql = "UPDATE tupitube_student SET ";
+    sql += "studentname = '" + studentname + "', ";
     sql += "name = '" + name + "', ";
     if (!password.isEmpty()) {
         sql += "password = '" + password + "', ";
     }
     sql += "is_enabled = " + QString::number(isEnabled ? 1 : 0) + ", ";
     sql += "is_creator = " + QString::number(isCreator ? 1 : 0) + ", ";
-    QString safeClass = userClass;
-    safeClass.replace("'", "''");
-    sql += "class = '" + safeClass + "'";
+    sql += "class_id = " + QString::number(classId);
     sql += ", updated_at = datetime('now') ";
-    sql += "WHERE user_id = " + QString::number(userId);
+    sql += "WHERE student_id = " + QString::number(studentId);
 
     QSqlQuery query;
     bool isOk = query.exec(sql);
 
     #ifdef TUP_DEBUG
-        qWarning() << "[DatabaseHandler::updateUser()] - SQL:" << sql;
+        qWarning() << "[DatabaseHandler::updateStudent()] - SQL:" << sql;
         if (!isOk)
-            qWarning() << "[DatabaseHandler::updateUser()] - Error:" << query.lastError().text();
+            qWarning() << "[DatabaseHandler::updateStudent()] - Error:" << query.lastError().text();
     #endif
 
     return isOk;
 }
 
-bool DatabaseHandler::removeUser(int userId)
+bool DatabaseHandler::removeStudent(int studentId)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::removeUser()] - userId:" << userId;
+        qDebug() << "[DatabaseHandler::removeStudent()] - studentId:" << studentId;
     #endif
 
-    QString sql = "DELETE FROM tupitube_user WHERE user_id = " + QString::number(userId);
+    QString sql = "DELETE FROM tupitube_student WHERE student_id = " + QString::number(studentId);
 
     QSqlQuery query;
     bool isOk = query.exec(sql);
 
     #ifdef TUP_DEBUG
-        qWarning() << "[DatabaseHandler::removeUser()] - SQL:" << sql;
+        qWarning() << "[DatabaseHandler::removeStudent()] - SQL:" << sql;
         if (!isOk)
-            qWarning() << "[DatabaseHandler::removeUser()] - Error:" << query.lastError().text();
+            qWarning() << "[DatabaseHandler::removeStudent()] - Error:" << query.lastError().text();
     #endif
 
     return isOk;
 }
 
-bool DatabaseHandler::usernameExists(const QString &username) const
+bool DatabaseHandler::studentnameExists(const QString &studentname) const
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::usernameExists()] - username:" << username;
+        qDebug() << "[DatabaseHandler::studentnameExists()] - studentname:" << studentname;
     #endif
 
-    QString sql = "SELECT COUNT(*) FROM tupitube_user WHERE username = '" + username + "'";
+    QString sql = "SELECT COUNT(*) FROM tupitube_student WHERE studentname = '" + studentname + "'";
     QSqlQuery query(sql);
     
     if (query.first()) {
@@ -717,29 +781,35 @@ QList<DatabaseHandler::ProjectRecord> DatabaseHandler::getAllProjects() const
     #endif
 
     QList<ProjectRecord> projects;
-    QString sql = "SELECT p.project_id, p.title, p.filename, p.owner_id, u.username, p.description, "
-                  "p.created_at, p.is_shared FROM tupitube_project p "
-                  "LEFT JOIN tupitube_user u ON p.owner_id = u.user_id "
+    QString sql = "SELECT p.project_id, p.title, p.filename, p.student_id, u.studentname, p.description, "
+                  "p.created_at, p.is_shared, p.class_id, c.name, p.period_id, per.name, p.group_project "
+                  "FROM tupitube_project p "
+                  "LEFT JOIN tupitube_student u ON p.student_id = u.student_id "
+                  "LEFT JOIN class c ON p.class_id = c.class_id "
+                  "LEFT JOIN period per ON p.period_id = per.period_id "
                   "ORDER BY p.created_at DESC";
     QSqlQuery query(sql);
-
     while (query.next()) {
         ProjectRecord record;
         record.projectId = query.value(0).toInt();
         record.title = query.value(1).toString();
         record.filename = query.value(2).toString();
         record.ownerId = query.value(3).toInt();
-        record.ownerUsername = query.value(4).toString();
+        record.ownerStudentname = query.value(4).toString();
         record.description = query.value(5).toString();
         record.createdAt = query.value(6).toString();
         record.isShared = query.value(7).toBool();
+        record.classId = query.value(8).toInt();
+        record.className = query.value(9).toString();
+        record.periodId = query.value(10).toInt();
+        record.periodName = query.value(11).toString();
+        record.groupProject = query.value(12).toBool();
         projects.append(record);
     }
-
+    query.clear();
     #ifdef TUP_DEBUG
         qWarning() << "[DatabaseHandler::getAllProjects()] - Found" << projects.size() << "projects";
     #endif
-
     return projects;
 }
 
@@ -750,18 +820,18 @@ QList<DatabaseHandler::CollaboratorInfo> DatabaseHandler::getProjectCollaborator
     #endif
 
     QList<CollaboratorInfo> collaborators;
-    QString sql = "SELECT c.collaboration_id, c.user_id, u.username, u.name, c.permission_level "
+    QString sql = "SELECT c.collaboration_id, c.student_id, u.studentname, u.name, c.permission_level "
                   "FROM tupitube_collaboration c "
-                  "LEFT JOIN tupitube_user u ON c.user_id = u.user_id "
+                  "LEFT JOIN tupitube_student u ON c.student_id = u.student_id "
                   "WHERE c.project_id = " + QString::number(projectId) + " "
-                  "ORDER BY u.username";
+                  "ORDER BY u.studentname";
     QSqlQuery query(sql);
 
     while (query.next()) {
         CollaboratorInfo info;
         info.collaborationId = query.value(0).toInt();
-        info.userId = query.value(1).toInt();
-        info.username = query.value(2).toString();
+        info.studentId = query.value(1).toInt();
+        info.studentname = query.value(2).toString();
         info.name = query.value(3).toString();
         info.permissionLevel = query.value(4).toInt();
         collaborators.append(info);
@@ -774,15 +844,15 @@ QList<DatabaseHandler::CollaboratorInfo> DatabaseHandler::getProjectCollaborator
     return collaborators;
 }
 
-bool DatabaseHandler::addCollaborator(int projectId, int userId, int permissionLevel)
+bool DatabaseHandler::addCollaborator(int projectId, int studentId, int permissionLevel)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::addCollaborator()] - projectId:" << projectId << "userId:" << userId;
+        qDebug() << "[DatabaseHandler::addCollaborator()] - projectId:" << projectId << "studentId:" << studentId;
     #endif
 
     // Check if collaboration already exists
     QString checkSql = "SELECT COUNT(*) FROM tupitube_collaboration WHERE project_id = " 
-                       + QString::number(projectId) + " AND user_id = " + QString::number(userId);
+                       + QString::number(projectId) + " AND student_id = " + QString::number(studentId);
     QSqlQuery checkQuery(checkSql);
     if (checkQuery.first() && checkQuery.value(0).toInt() > 0) {
         #ifdef TUP_DEBUG
@@ -791,9 +861,9 @@ bool DatabaseHandler::addCollaborator(int projectId, int userId, int permissionL
         return false;
     }
 
-    QString sql = "INSERT INTO tupitube_collaboration (project_id, user_id, permission_level) VALUES (";
+    QString sql = "INSERT INTO tupitube_collaboration (project_id, student_id, permission_level) VALUES (";
     sql += QString::number(projectId) + ", ";
-    sql += QString::number(userId) + ", ";
+    sql += QString::number(studentId) + ", ";
     sql += QString::number(permissionLevel) + ")";
 
     QSqlQuery query;
@@ -815,14 +885,14 @@ bool DatabaseHandler::addCollaborator(int projectId, int userId, int permissionL
     return isOk;
 }
 
-bool DatabaseHandler::removeCollaborator(int projectId, int userId)
+bool DatabaseHandler::removeCollaborator(int projectId, int studentId)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::removeCollaborator()] - projectId:" << projectId << "userId:" << userId;
+        qDebug() << "[DatabaseHandler::removeCollaborator()] - projectId:" << projectId << "studentId:" << studentId;
     #endif
 
     QString sql = "DELETE FROM tupitube_collaboration WHERE project_id = " + QString::number(projectId) 
-                  + " AND user_id = " + QString::number(userId);
+                  + " AND student_id = " + QString::number(studentId);
 
     QSqlQuery query;
     bool isOk = query.exec(sql);
@@ -849,7 +919,7 @@ bool DatabaseHandler::removeCollaborator(int projectId, int userId)
 }
 
 bool DatabaseHandler::createEmptyProject(const QString &title, const QString &description, int ownerId, 
-                                          const QString &filename, const QList<int> &collaboratorIds)
+                                          const QString &filename, const QList<int> &collaboratorIds, int periodId)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[DatabaseHandler::createEmptyProject()] - title:" << title << "owner:" << ownerId;
@@ -857,13 +927,20 @@ bool DatabaseHandler::createEmptyProject(const QString &title, const QString &de
 
     bool isShared = !collaboratorIds.isEmpty();
 
-    QString sql = "INSERT INTO tupitube_project (title, description, owner_id, filename, is_shared) VALUES (";
+    // For schema compliance, require class_id, period_id, group_project (default 0)
+    int classId = 1; // TODO: get actual class_id
+    // periodId is now passed as argument
+    int groupProject = isShared ? 1 : 0;
+
+    QString sql = "INSERT INTO tupitube_project (title, description, student_id, filename, is_shared, class_id, period_id, group_project) VALUES (";
     sql += "'" + title + "', ";
     sql += "'" + description + "', ";
     sql += QString::number(ownerId) + ", ";
     sql += "'" + filename + "', ";
-    sql += QString::number(isShared ? 1 : 0) + ")";
-
+    sql += QString::number(isShared ? 1 : 0) + ", ";
+    sql += QString::number(classId) + ", ";
+    sql += QString::number(periodId) + ", ";
+    sql += QString::number(groupProject) + ")";
     QSqlQuery query;
     bool isOk = query.exec(sql);
 
@@ -878,9 +955,9 @@ bool DatabaseHandler::createEmptyProject(const QString &title, const QString &de
     int projectId = query.lastInsertId().toInt();
 
     // Add collaborators
-    for (int userId : collaboratorIds) {
-        if (userId != ownerId) {  // Don't add owner as collaborator
-            addCollaborator(projectId, userId);
+    for (int studentId : collaboratorIds) {
+        if (studentId != ownerId) {  // Don't add owner as collaborator
+            addCollaborator(projectId, studentId);
         }
     }
 
@@ -902,20 +979,20 @@ QString DatabaseHandler::getProjectFilename(int projectId) const
 int DatabaseHandler::getProjectOwnerId(int projectId) const
 {
     QSqlQuery query;
-    query.exec("SELECT owner_id FROM tupitube_project WHERE project_id = " + QString::number(projectId));
+    query.exec("SELECT student_id FROM tupitube_project WHERE project_id = " + QString::number(projectId));
     if (query.next())
         return query.value(0).toInt();
     return -1;
 }
 
-QString DatabaseHandler::getOwnerUsername(int projectId) const
+QString DatabaseHandler::getOwnerStudentname(int projectId) const
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::getOwnerUsername()] - projectId:" << projectId;
+        qDebug() << "[DatabaseHandler::getOwnerStudentname()] - projectId:" << projectId;
     #endif
 
-    QString sql = "SELECT u.username FROM tupitube_project p "
-                  "LEFT JOIN tupitube_user u ON p.owner_id = u.user_id "
+    QString sql = "SELECT u.studentname FROM tupitube_project p "
+                  "LEFT JOIN tupitube_student u ON p.student_id = u.student_id "
                   "WHERE p.project_id = " + QString::number(projectId);
     QSqlQuery query(sql);
     if (query.next())
@@ -954,24 +1031,24 @@ bool DatabaseHandler::deleteProject(int projectId)
     }
 }
 
-bool DatabaseHandler::saveChatMessage(int projectId, int userId, const QString &username, 
+bool DatabaseHandler::saveChatMessage(int projectId, int studentId, const QString &studentname, 
                                       const QString &message, const QString &messageType)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::saveChatMessage()] - User:" << username << "Type:" << messageType;
+        qDebug() << "[DatabaseHandler::saveChatMessage()] - Student:" << studentname << "Type:" << messageType;
     #endif
 
     QSqlQuery query;
-    query.prepare("INSERT INTO tupitube_chat (project_id, user_id, username, message, message_type) "
-                  "VALUES (:projectId, :userId, :username, :message, :messageType)");
+    query.prepare("INSERT INTO tupitube_chat (project_id, student_id, studentname, message, message_type) "
+                  "VALUES (:projectId, :studentId, :studentname, :message, :messageType)");
     
     if (projectId > 0)
         query.bindValue(":projectId", projectId);
     else
         query.bindValue(":projectId", QVariant(QVariant::Int));  // NULL for global chat
     
-    query.bindValue(":userId", userId);
-    query.bindValue(":username", username);
+    query.bindValue(":studentId", studentId);
+    query.bindValue(":studentname", studentname);
     query.bindValue(":message", message);
     query.bindValue(":messageType", messageType);
 
@@ -989,7 +1066,7 @@ QList<DatabaseHandler::ChatMessage> DatabaseHandler::getChatHistory(int projectI
 {
     QList<ChatMessage> messages;
 
-    QString sql = "SELECT chat_id, project_id, user_id, username, message, message_type, created_at "
+    QString sql = "SELECT chat_id, project_id, student_id, studentname, message, message_type, created_at "
                   "FROM tupitube_chat ";
     
     if (projectId > 0)
@@ -1004,8 +1081,8 @@ QList<DatabaseHandler::ChatMessage> DatabaseHandler::getChatHistory(int projectI
         ChatMessage msg;
         msg.chatId = query.value(0).toInt();
         msg.projectId = query.value(1).toInt();
-        msg.userId = query.value(2).toInt();
-        msg.username = query.value(3).toString();
+        msg.studentId = query.value(2).toInt();
+        msg.studentname = query.value(3).toString();
         msg.message = query.value(4).toString();
         msg.messageType = query.value(5).toString();
         msg.createdAt = query.value(6).toString();
@@ -1020,7 +1097,7 @@ QList<DatabaseHandler::ChatMessage> DatabaseHandler::getChatHistoryByDate(const 
     QList<ChatMessage> messages;
 
     QSqlQuery query;
-    query.prepare("SELECT chat_id, project_id, user_id, username, message, message_type, created_at "
+    query.prepare("SELECT chat_id, project_id, student_id, studentname, message, message_type, created_at "
                   "FROM tupitube_chat "
                   "WHERE created_at >= :fromDate AND created_at <= :toDate "
                   "ORDER BY created_at DESC");
@@ -1032,8 +1109,8 @@ QList<DatabaseHandler::ChatMessage> DatabaseHandler::getChatHistoryByDate(const 
         ChatMessage msg;
         msg.chatId = query.value(0).toInt();
         msg.projectId = query.value(1).toInt();
-        msg.userId = query.value(2).toInt();
-        msg.username = query.value(3).toString();
+        msg.studentId = query.value(2).toInt();
+        msg.studentname = query.value(3).toString();
         msg.message = query.value(4).toString();
         msg.messageType = query.value(5).toString();
         msg.createdAt = query.value(6).toString();
@@ -1065,4 +1142,88 @@ bool DatabaseHandler::clearChatHistory(int projectId)
     }
 
     return true;
+}
+
+// === Class and Period Management ===
+QList<DatabaseHandler::ClassInfo> DatabaseHandler::getAllClasses() const {
+    QList<ClassInfo> list;
+    QSqlQuery query("SELECT class_id, name, year, description FROM class ORDER BY year DESC, name ASC");
+    while (query.next()) {
+        ClassInfo c;
+        c.classId = query.value(0).toInt();
+        c.name = query.value(1).toString();
+        c.year = query.value(2).toInt();
+        c.description = query.value(3).toString();
+        list.append(c);
+    }
+    return list;
+}
+
+bool DatabaseHandler::addClass(const QString &name, int year, const QString &description) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO class (name, year, description) VALUES (?, ?, ?)");
+    query.addBindValue(name);
+    query.addBindValue(year);
+    query.addBindValue(description);
+    return query.exec();
+}
+
+bool DatabaseHandler::updateClass(int classId, const QString &name, int year, const QString &description) {
+    QSqlQuery query;
+    query.prepare("UPDATE class SET name=?, year=?, description=? WHERE class_id=?");
+    query.addBindValue(name);
+    query.addBindValue(year);
+    query.addBindValue(description);
+    query.addBindValue(classId);
+    return query.exec();
+}
+
+bool DatabaseHandler::removeClass(int classId) {
+    QSqlQuery query;
+    query.prepare("DELETE FROM class WHERE class_id=?");
+    query.addBindValue(classId);
+    return query.exec();
+}
+
+QList<DatabaseHandler::PeriodInfo> DatabaseHandler::getAllPeriods() const {
+    QList<PeriodInfo> list;
+    QSqlQuery query("SELECT period_id, name, year, start_date, end_date FROM period ORDER BY year DESC, name ASC");
+    while (query.next()) {
+        PeriodInfo p;
+        p.periodId = query.value(0).toInt();
+        p.name = query.value(1).toString();
+        p.year = query.value(2).toInt();
+        p.startDate = query.value(3).toString();
+        p.endDate = query.value(4).toString();
+        list.append(p);
+    }
+    return list;
+}
+
+bool DatabaseHandler::addPeriod(const QString &name, int year, const QString &startDate, const QString &endDate) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO period (name, year, start_date, end_date) VALUES (?, ?, ?, ?)");
+    query.addBindValue(name);
+    query.addBindValue(year);
+    query.addBindValue(startDate);
+    query.addBindValue(endDate);
+    return query.exec();
+}
+
+bool DatabaseHandler::updatePeriod(int periodId, const QString &name, int year, const QString &startDate, const QString &endDate) {
+    QSqlQuery query;
+    query.prepare("UPDATE period SET name=?, year=?, start_date=?, end_date=? WHERE period_id=?");
+    query.addBindValue(name);
+    query.addBindValue(year);
+    query.addBindValue(startDate);
+    query.addBindValue(endDate);
+    query.addBindValue(periodId);
+    return query.exec();
+}
+
+bool DatabaseHandler::removePeriod(int periodId) {
+    QSqlQuery query;
+    query.prepare("DELETE FROM period WHERE period_id=?");
+    query.addBindValue(periodId);
+    return query.exec();
 }

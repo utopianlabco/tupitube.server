@@ -33,14 +33,14 @@
  ***************************************************************************/
 #include "notice.h"
 
-Notice::Notice(const QString &user, int state): QDomDocument()
+Notice::Notice(const QString &student, int state): QDomDocument()
 {
     QDomElement root = createElement("communication_notice");
     root.setAttribute("version", 0);
     appendChild(root);
     
     QDomElement message = createElement("notice");
-    message.setAttribute("login", user); 
+    message.setAttribute("login", student); 
     message.setAttribute("state", state);
     root.appendChild(message);
 }

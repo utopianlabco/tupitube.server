@@ -59,6 +59,17 @@
 #include <QListWidget>
 #include <QDomDocument>
 
+#include <QDialog>
+#include <QDateEdit>
+// #include <QFormLayout>
+#include <QLineEdit>
+#include <QDialogButtonBox>
+#include <QDate>
+#include <QTableWidgetItem>
+#include <QMessageBox>
+#include <QStringList>
+#include <QList>
+
 static QStringList getLocalIPAddresses()
 {
     QStringList addresses;
@@ -98,8 +109,8 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
 
     // Connect server signals
     connect(m_server, &TcpServer::connectionCountChanged, this, &TupServerWindow::onConnectionCountChanged);
-    connect(m_server, &TcpServer::userConnected, this, &TupServerWindow::onUserConnected);
-    connect(m_server, &TcpServer::userDisconnected, this, &TupServerWindow::onUserDisconnected);
+    connect(m_server, &TcpServer::studentConnected, this, &TupServerWindow::onStudentConnected);
+    connect(m_server, &TcpServer::studentDisconnected, this, &TupServerWindow::onStudentDisconnected);
     connect(m_server, &TcpServer::logMessage, this, &TupServerWindow::onLogMessage);
 
     setupUI();
@@ -181,9 +192,9 @@ void TupServerWindow::setupMenuBar()
         m_tabWidget->setCurrentIndex(0);
     });
 
-    QAction *usersTabAction = viewMenu->addAction(tr("&Users"));
-    usersTabAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_2));
-    connect(usersTabAction, &QAction::triggered, this, [this]() {
+    QAction *studentsTabAction = viewMenu->addAction(tr("&Students"));
+    studentsTabAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_2));
+    connect(studentsTabAction, &QAction::triggered, this, [this]() {
         m_tabWidget->setCurrentIndex(1);
     });
 
@@ -224,22 +235,96 @@ void TupServerWindow::setupTabs()
     m_tabWidget = new QTabWidget(this);
 
     m_statusTab = new QWidget();
-    m_usersTab = new QWidget();
+    m_studentsTab = new QWidget();
     m_projectsTab = new QWidget();
     m_logsTab = new QWidget();
+    m_classesTab = new QWidget();
     m_settingsTab = new QWidget();
 
     setupStatusTab();
-    setupUsersTab();
+    setupStudentsTab();
     setupProjectsTab();
     setupLogsTab();
+    setupClassesTab();
     setupSettingsTab();
 
     m_tabWidget->addTab(m_statusTab, QIcon(":/icons/status.png"), tr("Status"));
     m_tabWidget->addTab(m_logsTab, QIcon(":/icons/logs.png"), tr("Logs"));
-    m_tabWidget->addTab(m_usersTab, QIcon(":/icons/users.png"), tr("Users"));
+    m_tabWidget->addTab(m_classesTab, QIcon(":/icons/class.png"), tr("Classes"));
+    m_tabWidget->addTab(m_studentsTab, QIcon(":/icons/students.png"), tr("Students"));
     m_tabWidget->addTab(m_projectsTab, QIcon(":/icons/project.png"), tr("Projects"));
     m_tabWidget->addTab(m_settingsTab, QIcon(":/icons/settings.png"), tr("Settings"));
+}
+
+void TupServerWindow::setupClassesTab()
+{
+    QVBoxLayout *layout = new QVBoxLayout(m_classesTab);
+
+    // Classes Section
+    QGroupBox *classesGroup = new QGroupBox(tr("Classes"));
+    QVBoxLayout *classesLayout = new QVBoxLayout(classesGroup);
+
+    m_classesTable = new QTableWidget(0, 3);
+    m_classesTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("Year")});
+    m_classesTable->horizontalHeader()->setStretchLastSection(true);
+    m_classesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_classesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_classesTable->setAlternatingRowColors(true);
+    classesLayout->addWidget(m_classesTable);
+
+    QHBoxLayout *classBtnLayout = new QHBoxLayout();
+    m_addClassButton = new QPushButton(tr("Add Class"));
+    m_editClassButton = new QPushButton(tr("Edit Class"));
+    m_removeClassButton = new QPushButton(tr("Remove Class"));
+    m_refreshClassesButton = new QPushButton(tr("Refresh"));
+    classBtnLayout->addWidget(m_addClassButton);
+    classBtnLayout->addWidget(m_editClassButton);
+    classBtnLayout->addWidget(m_removeClassButton);
+    classBtnLayout->addWidget(m_refreshClassesButton);
+    classBtnLayout->addStretch();
+    classesLayout->addLayout(classBtnLayout);
+
+    layout->addWidget(classesGroup);
+
+    // Periods Section
+    QGroupBox *periodsGroup = new QGroupBox(tr("Periods"));
+    QVBoxLayout *periodsLayout = new QVBoxLayout(periodsGroup);
+
+    m_periodsTable = new QTableWidget(0, 4);
+    m_periodsTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("Year"), tr("Dates")});
+    m_periodsTable->horizontalHeader()->setStretchLastSection(true);
+    m_periodsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_periodsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_periodsTable->setAlternatingRowColors(true);
+    periodsLayout->addWidget(m_periodsTable);
+
+    QHBoxLayout *periodBtnLayout = new QHBoxLayout();
+    m_addPeriodButton = new QPushButton(tr("Add Period"));
+    m_editPeriodButton = new QPushButton(tr("Edit Period"));
+    m_removePeriodButton = new QPushButton(tr("Remove Period"));
+    periodBtnLayout->addWidget(m_addPeriodButton);
+    periodBtnLayout->addWidget(m_editPeriodButton);
+    periodBtnLayout->addWidget(m_removePeriodButton);
+    periodBtnLayout->addStretch();
+    periodsLayout->addLayout(periodBtnLayout);
+
+    layout->addWidget(periodsGroup);
+    layout->addStretch();
+
+    // Connect buttons to slots
+    connect(m_addClassButton, &QPushButton::clicked, this, &TupServerWindow::onAddClass);
+    connect(m_editClassButton, &QPushButton::clicked, this, &TupServerWindow::onEditClass);
+    connect(m_removeClassButton, &QPushButton::clicked, this, &TupServerWindow::onRemoveClass);
+    connect(m_refreshClassesButton, &QPushButton::clicked, this, &TupServerWindow::refreshClassesList);
+    connect(m_classesTable, &QTableWidget::doubleClicked, this, &TupServerWindow::onEditClass);
+    connect(m_addPeriodButton, &QPushButton::clicked, this, &TupServerWindow::onAddPeriod);
+    connect(m_editPeriodButton, &QPushButton::clicked, this, &TupServerWindow::onEditPeriod);
+    connect(m_periodsTable, &QTableWidget::doubleClicked, this, &TupServerWindow::onEditPeriod);
+    connect(m_removePeriodButton, &QPushButton::clicked, this, &TupServerWindow::onRemovePeriod);
+
+    // Initial load
+    refreshClassesList();
+    refreshPeriodsList();
 }
 
 void TupServerWindow::setupStatusTab()
@@ -308,79 +393,88 @@ void TupServerWindow::setupStatusTab()
     layout->addStretch();
 }
 
-void TupServerWindow::setupUsersTab()
+void TupServerWindow::setupStudentsTab()
 {
-    QVBoxLayout *layout = new QVBoxLayout(m_usersTab);
+    QVBoxLayout *layout = new QVBoxLayout(m_studentsTab);
 
-    // Connected Users Section
-    QGroupBox *connectedGroup = new QGroupBox(tr("Connected Users"));
+    // Connected Students Section
+    QGroupBox *connectedGroup = new QGroupBox(tr("Connected Students"));
     QVBoxLayout *connectedLayout = new QVBoxLayout(connectedGroup);
 
-    m_connectedUsersTable = new QTableWidget(0, 4);
-    m_connectedUsersTable->setHorizontalHeaderLabels({tr("Username"), tr("IP Address"), tr("Connected At"), tr("Status")});
-    m_connectedUsersTable->horizontalHeader()->setStretchLastSection(true);
-    m_connectedUsersTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_connectedUsersTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_connectedUsersTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connectedUsersTable->setAlternatingRowColors(true);
-    m_connectedUsersTable->setMaximumHeight(150);
+    m_connectedStudentsTable = new QTableWidget(0, 4);
+    m_connectedStudentsTable->setHorizontalHeaderLabels({tr("Student Name"), tr("IP Address"), tr("Connected At"), tr("Status")});
+    m_connectedStudentsTable->horizontalHeader()->setStretchLastSection(true);
+    m_connectedStudentsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_connectedStudentsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_connectedStudentsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_connectedStudentsTable->setAlternatingRowColors(true);
+    m_connectedStudentsTable->setMaximumHeight(150);
 
-    connectedLayout->addWidget(m_connectedUsersTable);
+    connectedLayout->addWidget(m_connectedStudentsTable);
     layout->addWidget(connectedGroup);
 
-    // Registered Users Section
-    QGroupBox *registeredGroup = new QGroupBox(tr("Registered Users"));
+    // Registered Students Section
+    QGroupBox *registeredGroup = new QGroupBox(tr("Registered Students"));
     QVBoxLayout *registeredLayout = new QVBoxLayout(registeredGroup);
 
-    m_registeredUsersTable = new QTableWidget(0, 6);
-    m_registeredUsersTable->setHorizontalHeaderLabels({tr("ID"), tr("Username"), tr("Name"), tr("Class"), tr("Enabled"), tr("Creator")});
-    m_registeredUsersTable->horizontalHeader()->setStretchLastSection(true);
-    m_registeredUsersTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_registeredUsersTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_registeredUsersTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_registeredUsersTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_registeredUsersTable->setAlternatingRowColors(true);
-    m_registeredUsersTable->setColumnHidden(0, true); // Hide ID column
+    // Filter line edit
+    m_studentFilterEdit = new QLineEdit();
+    m_studentFilterEdit->setPlaceholderText(tr("Filter students by student name, name, or class..."));
+    registeredLayout->addWidget(m_studentFilterEdit);
+    connect(m_studentFilterEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        refreshStudentsList(text);
+    });
 
-    registeredLayout->addWidget(m_registeredUsersTable);
+    m_registeredStudentsTable = new QTableWidget(0, 6);
+    m_registeredStudentsTable->setHorizontalHeaderLabels({tr("ID"), tr("Student Name"), tr("Name"), tr("Class"), tr("Enabled"), tr("Creator")});
+    m_registeredStudentsTable->horizontalHeader()->setStretchLastSection(true);
+    m_registeredStudentsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_registeredStudentsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_registeredStudentsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_registeredStudentsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_registeredStudentsTable->setAlternatingRowColors(true);
+    m_registeredStudentsTable->setColumnHidden(0, true); // Hide ID column
 
-    // Enable double-click to edit user
-    connect(m_registeredUsersTable, &QTableWidget::itemDoubleClicked, this, &TupServerWindow::editUser);
+    registeredLayout->addWidget(m_registeredStudentsTable);
 
-    // Buttons for user management
+    // Enable double-click to edit student
+    connect(m_registeredStudentsTable, &QTableWidget::itemDoubleClicked, this, &TupServerWindow::editStudent);
+
+    // Buttons for student management
     QHBoxLayout *buttonLayout = new QHBoxLayout();
 
-    m_addUserButton = new QPushButton(tr("Add User"));
-    m_addUserButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
-    connect(m_addUserButton, &QPushButton::clicked, this, &TupServerWindow::addUser);
-    buttonLayout->addWidget(m_addUserButton);
+    m_addStudentButton = new QPushButton(tr("Add Student"));
+    m_addStudentButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
+    connect(m_addStudentButton, &QPushButton::clicked, this, &TupServerWindow::addStudent);
+    buttonLayout->addWidget(m_addStudentButton);
 
-    m_editUserButton = new QPushButton(tr("Edit User"));
-    m_editUserButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    connect(m_editUserButton, &QPushButton::clicked, this, &TupServerWindow::editUser);
-    buttonLayout->addWidget(m_editUserButton);
+    m_editStudentButton = new QPushButton(tr("Edit Student"));
+    m_editStudentButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    connect(m_editStudentButton, &QPushButton::clicked, this, &TupServerWindow::editStudent);
+    buttonLayout->addWidget(m_editStudentButton);
 
-    m_removeUserButton = new QPushButton(tr("Remove User"));
-    m_removeUserButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
-    connect(m_removeUserButton, &QPushButton::clicked, this, &TupServerWindow::removeUser);
-    buttonLayout->addWidget(m_removeUserButton);
+    m_removeStudentButton = new QPushButton(tr("Remove Student"));
+    m_removeStudentButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+    connect(m_removeStudentButton, &QPushButton::clicked, this, &TupServerWindow::removeStudent);
+    buttonLayout->addWidget(m_removeStudentButton);
 
-
-    m_importCsvButton = new QPushButton(tr("Import Users"));
+    m_importCsvButton = new QPushButton(tr("Import Students"));
     m_importCsvButton->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
     connect(m_importCsvButton, &QPushButton::clicked, this, &TupServerWindow::importUsersFromCsv);
     buttonLayout->addWidget(m_importCsvButton);
     buttonLayout->addStretch();
 
-    m_refreshUsersButton = new QPushButton(tr("Refresh"));
-    m_refreshUsersButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    connect(m_refreshUsersButton, &QPushButton::clicked, this, &TupServerWindow::refreshUsersList);
-    buttonLayout->addWidget(m_refreshUsersButton);
+    m_refreshStudentsButton = new QPushButton(tr("Refresh"));
+    m_refreshStudentsButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    connect(m_refreshStudentsButton, &QPushButton::clicked, this, [this]() {
+        refreshStudentsList(m_studentFilterEdit->text());
+    });
+    buttonLayout->addWidget(m_refreshStudentsButton);
 
     registeredLayout->addLayout(buttonLayout);
     layout->addWidget(registeredGroup);
 
-    // Note: User list will be loaded when server starts (database must be open first)
+    // Note: Student list will be loaded when server starts (database must be open first)
 }
 
 void TupServerWindow::setupProjectsTab()
@@ -448,7 +542,7 @@ void TupServerWindow::setupProjectsTab()
     QVBoxLayout *collaboratorsLayout = new QVBoxLayout(collaboratorsGroup);
 
     m_collaboratorsTable = new QTableWidget(0, 3);
-    m_collaboratorsTable->setHorizontalHeaderLabels({tr("Username"), tr("Full Name"), tr("Permission")});
+    m_collaboratorsTable->setHorizontalHeaderLabels({tr("Student Name"), tr("Full Name"), tr("Permission")});
     m_collaboratorsTable->horizontalHeader()->setStretchLastSection(true);
     m_collaboratorsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_collaboratorsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -646,6 +740,9 @@ void TupServerWindow::loadSettings()
         displayHost = displayHost.section(" (", 0, 0);
     m_hostLabel->setText(displayHost);
     m_portLabel->setText(QString::number(m_portSpin->value()));
+
+    // m_server->setHost(...) and setPort(...) removed: TcpServer does not have these methods.
+    // If you need to set host/port, use m_server->openConnection(m_hostCombo->currentText(), m_portSpin->value()) or store values for later use.
 }
 
 void TupServerWindow::updateDerivedPaths()
@@ -653,7 +750,7 @@ void TupServerWindow::updateDerivedPaths()
     QString dataPath = m_dataPathEdit->text();
     m_databasePathLabel->setText(dataPath + "/sqlite");
     m_cachePathLabel->setText(dataPath + "/cache");
-    m_projectsPathLabel->setText(dataPath + "/projects");
+    m_projectsPathLabel->setText(dataPath + "/students");
 }
 
 void TupServerWindow::saveSettings()
@@ -735,7 +832,7 @@ void TupServerWindow::saveConfigSettings()
     TCONFIG->endGroup();
 
     TCONFIG->beginGroup("Projects");
-    TCONFIG->setValue("ProjectsPath", dataPath + "/projects");
+    TCONFIG->setValue("ProjectsPath", dataPath + "/students");
     TCONFIG->endGroup();
 
     TCONFIG->sync();
@@ -786,14 +883,14 @@ void TupServerWindow::startServer()
         cache.mkpath(cachePath);
     }
 
-    // Create projects directory if needed
-    QString projectsPath = dataPath + "/projects";
-    QDir projectsDir(projectsPath);
-    if (!projectsDir.exists()) {
-        if (!projectsDir.mkpath(projectsPath)) {
-            appendLog(tr("Failed to create projects directory: %1").arg(projectsPath), "ERROR");
+    // Create students directory if needed
+    QString studentsPath = dataPath + "/students";
+    QDir studentsDir(studentsPath);
+    if (!studentsDir.exists()) {
+        if (!studentsDir.mkpath(studentsPath)) {
+            appendLog(tr("Failed to create students directory: %1").arg(studentsPath), "ERROR");
             QMessageBox::critical(this, tr("Error"),
-                tr("Failed to create projects directory: %1").arg(projectsPath));
+                tr("Failed to create students directory: %1").arg(studentsPath));
             return;
         }
     }
@@ -840,8 +937,8 @@ void TupServerWindow::onServerStarted()
     m_trayIcon->showMessage(tr("TupiTube Server"),
         tr("Server started successfully"), QSystemTrayIcon::Information, 3000);
 
-    // Load registered users and projects now that database is open
-    refreshUsersList();
+    // Load registered students and projects now that database is open
+    refreshStudentsList();
     refreshProjectsList();
 }
 
@@ -860,8 +957,8 @@ void TupServerWindow::onServerStopped()
     m_connectionCountLabel->setText("0");
     m_uptimeLabel->setText("00:00:00");
 
-    // Clear connected users table
-    m_connectedUsersTable->setRowCount(0);
+    // Clear connected students table
+    m_connectedStudentsTable->setRowCount(0);
 
     // Update tray menu
     QList<QAction*> actions = m_trayMenu->actions();
@@ -883,31 +980,31 @@ void TupServerWindow::onConnectionCountChanged(int count)
     updateTrayTooltip();
 }
 
-void TupServerWindow::onUserConnected(const QString &username, const QString &ip)
+void TupServerWindow::onStudentConnected(const QString &studentname, const QString &ip)
 {
-    int row = m_connectedUsersTable->rowCount();
-    m_connectedUsersTable->insertRow(row);
+    int row = m_connectedStudentsTable->rowCount();
+    m_connectedStudentsTable->insertRow(row);
 
-    m_connectedUsersTable->setItem(row, 0, new QTableWidgetItem(username));
-    m_connectedUsersTable->setItem(row, 1, new QTableWidgetItem(ip));
-    m_connectedUsersTable->setItem(row, 2, new QTableWidgetItem(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")));
-    m_connectedUsersTable->setItem(row, 3, new QTableWidgetItem(tr("Connected")));
+    m_connectedStudentsTable->setItem(row, 0, new QTableWidgetItem(studentname));
+    m_connectedStudentsTable->setItem(row, 1, new QTableWidgetItem(ip));
+    m_connectedStudentsTable->setItem(row, 2, new QTableWidgetItem(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")));
+    m_connectedStudentsTable->setItem(row, 3, new QTableWidgetItem(tr("Connected")));
 
-    appendLog(tr("User connected: %1 from %2").arg(username).arg(ip), "INFO");
+    appendLog(tr("Student connected: %1 from %2").arg(studentname).arg(ip), "INFO");
 }
 
-void TupServerWindow::onUserDisconnected(const QString &username)
+void TupServerWindow::onStudentDisconnected(const QString &studentname)
 {
-    // Find and remove user from table
-    for (int row = 0; row < m_connectedUsersTable->rowCount(); ++row) {
-        QTableWidgetItem *item = m_connectedUsersTable->item(row, 0);
-        if (item && item->text() == username) {
-            m_connectedUsersTable->removeRow(row);
+    // Find and remove student from table
+    for (int row = 0; row < m_connectedStudentsTable->rowCount(); ++row) {
+        QTableWidgetItem *item = m_connectedStudentsTable->item(row, 0);
+        if (item && item->text() == studentname) {
+            m_connectedStudentsTable->removeRow(row);
             break;
         }
     }
 
-    appendLog(tr("User disconnected: %1").arg(username), "INFO");
+    appendLog(tr("Student disconnected: %1").arg(studentname), "INFO");
 }
 
 void TupServerWindow::onLogMessage(const QString &message, const QString &level)
@@ -971,7 +1068,7 @@ void TupServerWindow::trayIconActivated(QSystemTrayIcon::ActivationReason reason
 void TupServerWindow::updateTrayTooltip()
 {
     QString status = m_serverRunning ? tr("Running") : tr("Stopped");
-    QString connections = m_serverRunning ? QString::number(m_connectedUsersTable->rowCount()) : "0";
+    QString connections = m_serverRunning ? QString::number(m_connectedStudentsTable->rowCount()) : "0";
     m_trayIcon->setToolTip(tr("TupiTube Server\nStatus: %1\nConnections: %2")
                                .arg(status)
                                .arg(connections));
@@ -1000,46 +1097,57 @@ void TupServerWindow::closeEvent(QCloseEvent *event)
     qApp->quit();
 }
 
-void TupServerWindow::refreshUsersList()
+void TupServerWindow::refreshStudentsList(const QString &filter)
 {
-    m_registeredUsersTable->setRowCount(0);
+    m_registeredStudentsTable->setRowCount(0);
 
     if (!m_dbHandler) {
         appendLog(tr("Database handler not initialized"), "ERROR");
         return;
     }
 
-    QList<DatabaseHandler::UserInfo> users = m_dbHandler->getAllUsers();
-    for (const DatabaseHandler::UserInfo &user : users) {
-        int row = m_registeredUsersTable->rowCount();
-        m_registeredUsersTable->insertRow(row);
+    QList<DatabaseHandler::StudentInfo> students = m_dbHandler->getAllStudents();
+    int filteredCount = 0;
+    for (const DatabaseHandler::StudentInfo &student : students) {
+        // Filter by studentname, name, or class
+        if (!filter.isEmpty()) {
+            QString f = filter.trimmed();
+            if (!student.studentname.contains(f, Qt::CaseInsensitive) &&
+                !student.name.contains(f, Qt::CaseInsensitive) &&
+                !student.className.contains(f, Qt::CaseInsensitive)) {
+                continue;
+            }
+        }
+        int row = m_registeredStudentsTable->rowCount();
+        m_registeredStudentsTable->insertRow(row);
 
         QList<QTableWidgetItem*> items;
-        items << new QTableWidgetItem(QString::number(user.userId));
-        items << new QTableWidgetItem(user.username);
-        items << new QTableWidgetItem(user.name);
-        items << new QTableWidgetItem(user.userClass); // New Class column
-        items << new QTableWidgetItem(user.isEnabled ? tr("Yes") : tr("No"));
-        items << new QTableWidgetItem(user.isCreator ? tr("Yes") : tr("No"));
+        items << new QTableWidgetItem(QString::number(student.studentId));
+        items << new QTableWidgetItem(student.studentname);
+        items << new QTableWidgetItem(student.name);
+        items << new QTableWidgetItem(student.className); // New Class column
+        items << new QTableWidgetItem(student.isEnabled ? tr("Yes") : tr("No"));
+        items << new QTableWidgetItem(student.isCreator ? tr("Yes") : tr("No"));
 
-        if (!user.isEnabled) {
+        if (!student.isEnabled) {
             QColor fg(200, 0, 0);     // red text for disabled
             for (QTableWidgetItem* item : items) {
                 item->setData(Qt::ForegroundRole, fg);
             }
         }
         for (int col = 0; col < items.size(); ++col) {
-            m_registeredUsersTable->setItem(row, col, items[col]);
+            m_registeredStudentsTable->setItem(row, col, items[col]);
         }
+        ++filteredCount;
     }
 
-    appendLog(tr("User list refreshed: %1 users found").arg(users.count()), "INFO");
+    appendLog(tr("Student list refreshed: %1 students found").arg(filteredCount), "INFO");
 }
 
-void TupServerWindow::addUser()
+void TupServerWindow::addStudent()
 {
     QDialog dialog(this);
-    dialog.setWindowTitle(tr("Add New User"));
+    dialog.setWindowTitle(tr("Add New Student"));
     dialog.setMinimumWidth(350);
 
     QFormLayout *formLayout = new QFormLayout(&dialog);
@@ -1048,13 +1156,17 @@ void TupServerWindow::addUser()
     nameEdit->setPlaceholderText(tr("Enter full name"));
     formLayout->addRow(tr("Full Name:"), nameEdit);
 
-    QLineEdit *classEdit = new QLineEdit();
-    classEdit->setPlaceholderText(tr("Enter class (optional)"));
-    formLayout->addRow(tr("Class:"), classEdit);
+    QComboBox *classCombo = new QComboBox();
+    classCombo->setEditable(false);
+    QList<DatabaseHandler::ClassInfo> classes = m_dbHandler->getAllClasses();
+    for (const auto &c : classes) {
+        classCombo->addItem(QString("%1 (%2)").arg(c.name).arg(c.year), c.classId);
+    }
+    formLayout->addRow(tr("Class:"), classCombo);
 
-    QLineEdit *usernameEdit = new QLineEdit();
-    usernameEdit->setPlaceholderText(tr("Enter username"));
-    formLayout->addRow(tr("Username:"), usernameEdit);
+    QLineEdit *studentnameEdit = new QLineEdit();
+    studentnameEdit->setPlaceholderText(tr("Enter username"));
+    formLayout->addRow(tr("Username:"), studentnameEdit);
 
     QLineEdit *passwordEdit = new QLineEdit();
     passwordEdit->setEchoMode(QLineEdit::Password);
@@ -1085,10 +1197,10 @@ void TupServerWindow::addUser()
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     formLayout->addRow(buttonBox);
 
-    auto validatePasswords = [passwordEdit, confirmPasswordEdit, passwordMatchLabel, okButton, usernameEdit]() {
+    auto validatePasswords = [passwordEdit, confirmPasswordEdit, passwordMatchLabel, okButton, studentnameEdit]() {
         QString pwd = passwordEdit->text();
         QString confirm = confirmPasswordEdit->text();
-        bool usernameValid = !usernameEdit->text().trimmed().isEmpty();
+        bool studentnameValid = !studentnameEdit->text().trimmed().isEmpty();
         bool passwordValid = !pwd.isEmpty();
         bool match = (pwd == confirm);
 
@@ -1104,22 +1216,26 @@ void TupServerWindow::addUser()
             passwordMatchLabel->setText(QObject::tr("Passwords match"));
             passwordMatchLabel->setStyleSheet("color: green;");
         }
-        okButton->setEnabled(usernameValid && passwordValid && match);
+        okButton->setEnabled(studentnameValid && passwordValid && match);
     };
 
     connect(passwordEdit, &QLineEdit::textChanged, validatePasswords);
     connect(confirmPasswordEdit, &QLineEdit::textChanged, validatePasswords);
-    connect(usernameEdit, &QLineEdit::textChanged, validatePasswords);
+    connect(studentnameEdit, &QLineEdit::textChanged, validatePasswords);
 
     if (dialog.exec() == QDialog::Accepted) {
-        QString username = usernameEdit->text().trimmed();
+        QString studentname = studentnameEdit->text().trimmed();
         QString name = nameEdit->text().trimmed();
-        QString userClass = classEdit->text().trimmed();
+        if (classCombo->currentIndex() < 0) {
+            QMessageBox::warning(this, tr("Input Error"), tr("You must select a class."));
+            return;
+        }
+        QString className = classCombo->currentText().section(" (", 0, 0);
         QString password = passwordEdit->text();
         QString confirmPassword = confirmPasswordEdit->text();
 
-        if (m_dbHandler->usernameExists(username)) {
-            QMessageBox::warning(this, tr("Error"), tr("Username already exists"));
+        if (m_dbHandler->studentnameExists(studentname)) {
+            QMessageBox::warning(this, tr("Error"), tr("Student name already exists"));
             return;
         }
 
@@ -1128,35 +1244,35 @@ void TupServerWindow::addUser()
         md5.addData(password.toUtf8());
         QString hashedPassword = md5.result().toHex();
 
-        bool success = m_dbHandler->addUser(username, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked(), userClass);
+        bool success = m_dbHandler->addStudent(studentname, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked(), className);
 
         if (success) {
-            appendLog(tr("User '%1' added successfully").arg(username), "INFO");
-            refreshUsersList();
+            appendLog(tr("Student '%1' added successfully").arg(studentname), "INFO");
+            refreshStudentsList();
         } else {
-            QMessageBox::critical(this, tr("Error"), tr("Failed to add user"));
-            appendLog(tr("Failed to add user '%1'").arg(username), "ERROR");
+            QMessageBox::critical(this, tr("Error"), tr("Failed to add student"));
+            appendLog(tr("Failed to add student '%1'").arg(studentname), "ERROR");
         }
     }
 }
 
-void TupServerWindow::editUser()
+void TupServerWindow::editStudent()
 {
-    int currentRow = m_registeredUsersTable->currentRow();
+    int currentRow = m_registeredStudentsTable->currentRow();
     if (currentRow < 0) {
-        QMessageBox::information(this, tr("Information"), tr("Please select a user to edit"));
+        QMessageBox::information(this, tr("Information"), tr("Please select a student to edit"));
         return;
     }
 
-    int userId = m_registeredUsersTable->item(currentRow, 0)->text().toInt();
-    QString currentUsername = m_registeredUsersTable->item(currentRow, 1)->text();
-    QString currentName = m_registeredUsersTable->item(currentRow, 2)->text();
-    QString currentClass = m_registeredUsersTable->item(currentRow, 3)->text();
-    bool currentEnabled = m_registeredUsersTable->item(currentRow, 4)->text() == tr("Yes");
-    bool currentCreator = m_registeredUsersTable->item(currentRow, 5)->text() == tr("Yes");
+    int studentId = m_registeredStudentsTable->item(currentRow, 0)->text().toInt();
+    QString currentStudentName = m_registeredStudentsTable->item(currentRow, 1)->text();
+    QString currentName = m_registeredStudentsTable->item(currentRow, 2)->text();
+    QString currentClass = m_registeredStudentsTable->item(currentRow, 3)->text();
+    bool currentEnabled = m_registeredStudentsTable->item(currentRow, 4)->text() == tr("Yes");
+    bool currentCreator = m_registeredStudentsTable->item(currentRow, 5)->text() == tr("Yes");
 
     QDialog dialog(this);
-    dialog.setWindowTitle(tr("Edit User: %1").arg(currentUsername));
+    dialog.setWindowTitle(tr("Edit Student: %1").arg(currentStudentName));
     dialog.setMinimumWidth(350);
 
     QFormLayout *formLayout = new QFormLayout(&dialog);
@@ -1164,11 +1280,21 @@ void TupServerWindow::editUser()
     QLineEdit *nameEdit = new QLineEdit(currentName);
     formLayout->addRow(tr("Full Name:"), nameEdit);
 
-    QLineEdit *classEdit = new QLineEdit(currentClass);
-    formLayout->addRow(tr("Class:"), classEdit);
+    QComboBox *classCombo = new QComboBox();
+    classCombo->setEditable(false);
+    QList<DatabaseHandler::ClassInfo> classes = m_dbHandler->getAllClasses();
+    int selectedIndex = 0;
+    for (int i = 0; i < classes.size(); ++i) {
+        const auto &c = classes[i];
+        QString label = QString("%1 (%2)").arg(c.name).arg(c.year);
+        classCombo->addItem(label, c.classId);
+        if (c.name == currentClass) selectedIndex = i;
+    }
+    classCombo->setCurrentIndex(selectedIndex);
+    formLayout->addRow(tr("Class:"), classCombo);
 
-    QLineEdit *usernameEdit = new QLineEdit(currentUsername);
-    formLayout->addRow(tr("Username:"), usernameEdit);
+    QLineEdit *studentnameEdit = new QLineEdit(currentStudentName);
+    formLayout->addRow(tr("Studentname:"), studentnameEdit);
 
     QLineEdit *passwordEdit = new QLineEdit();
     passwordEdit->setEchoMode(QLineEdit::Password);
@@ -1198,15 +1324,15 @@ void TupServerWindow::editUser()
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     formLayout->addRow(buttonBox);
 
-    auto validateEditPasswords = [passwordEdit, confirmPasswordEdit, passwordMatchLabel, okButton, usernameEdit]() {
+    auto validateEditPasswords = [passwordEdit, confirmPasswordEdit, passwordMatchLabel, okButton, studentnameEdit]() {
         QString pwd = passwordEdit->text();
         QString confirm = confirmPasswordEdit->text();
-        bool usernameValid = !usernameEdit->text().trimmed().isEmpty();
+        bool studentnameValid = !studentnameEdit->text().trimmed().isEmpty();
         bool match = (pwd == confirm);
 
         if (pwd.isEmpty() && confirm.isEmpty()) {
             passwordMatchLabel->setText("");
-            okButton->setEnabled(usernameValid);
+            okButton->setEnabled(studentnameValid);
         } else if (!match) {
             passwordMatchLabel->setText(QObject::tr("Passwords do not match"));
             passwordMatchLabel->setStyleSheet("color: red;");
@@ -1214,24 +1340,28 @@ void TupServerWindow::editUser()
         } else {
             passwordMatchLabel->setText(QObject::tr("Passwords match"));
             passwordMatchLabel->setStyleSheet("color: green;");
-            okButton->setEnabled(usernameValid);
+            okButton->setEnabled(studentnameValid);
         }
     };
 
     connect(passwordEdit, &QLineEdit::textChanged, validateEditPasswords);
     connect(confirmPasswordEdit, &QLineEdit::textChanged, validateEditPasswords);
-    connect(usernameEdit, &QLineEdit::textChanged, validateEditPasswords);
+    connect(studentnameEdit, &QLineEdit::textChanged, validateEditPasswords);
 
     if (dialog.exec() == QDialog::Accepted) {
-        QString username = usernameEdit->text().trimmed();
+        QString studentname = studentnameEdit->text().trimmed();
         QString name = nameEdit->text().trimmed();
-        QString userClass = classEdit->text().trimmed();
+        if (classCombo->currentIndex() < 0) {
+            QMessageBox::warning(this, tr("Input Error"), tr("You must select a class."));
+            return;
+        }
+        QString className = classCombo->currentText().section(" (", 0, 0);
         QString password = passwordEdit->text();
         QString confirmPassword = confirmPasswordEdit->text();
 
-        // Check if username changed and if new username already exists
-        if (username != currentUsername && m_dbHandler->usernameExists(username)) {
-            QMessageBox::warning(this, tr("Error"), tr("Username already exists"));
+        // Check if studentname changed and if new studentname already exists
+        if (studentname != currentStudentName && m_dbHandler->studentnameExists(studentname)) {
+            QMessageBox::warning(this, tr("Error"), tr("Student name already exists"));
             return;
         }
 
@@ -1243,48 +1373,48 @@ void TupServerWindow::editUser()
             hashedPassword = md5.result().toHex();
         }
 
-        bool success = m_dbHandler->updateUser(userId, username, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked(), userClass);
+        bool success = m_dbHandler->updateStudent(studentId, studentname, name, hashedPassword, enabledCheck->isChecked(), creatorCheck->isChecked(), className);
 
         if (success) {
-            appendLog(tr("User '%1' updated successfully").arg(username), "INFO");
-            refreshUsersList();
+            appendLog(tr("Student '%1' updated successfully").arg(studentname), "INFO");
+            refreshStudentsList();
         } else {
-            QMessageBox::critical(this, tr("Error"), tr("Failed to update user"));
-            appendLog(tr("Failed to update user '%1'").arg(username), "ERROR");
+            QMessageBox::critical(this, tr("Error"), tr("Failed to update student"));
+            appendLog(tr("Failed to update student '%1'").arg(studentname), "ERROR");
         }
     }
 }
 
-void TupServerWindow::removeUser()
+void TupServerWindow::removeStudent()
 {
-    int currentRow = m_registeredUsersTable->currentRow();
+    int currentRow = m_registeredStudentsTable->currentRow();
     if (currentRow < 0) {
-        QMessageBox::information(this, tr("Information"), tr("Please select a user to remove"));
+        QMessageBox::information(this, tr("Information"), tr("Please select a student to remove"));
         return;
     }
 
-    int userId = m_registeredUsersTable->item(currentRow, 0)->text().toInt();
-    QString username = m_registeredUsersTable->item(currentRow, 1)->text();
+    int studentId = m_registeredStudentsTable->item(currentRow, 0)->text().toInt();
+    QString studentname = m_registeredStudentsTable->item(currentRow, 1)->text();
 
-    // Prevent removing admin user
-    if (username == "admin") {
-        QMessageBox::warning(this, tr("Warning"), tr("Cannot remove the admin user"));
+    // Prevent removing admin student
+    if (studentname == "admin") {
+        QMessageBox::warning(this, tr("Warning"), tr("Cannot remove the admin student"));
         return;
     }
 
     QMessageBox::StandardButton reply = QMessageBox::question(this, tr("Confirm Removal"),
-        tr("Are you sure you want to remove user '%1'?\nThis action cannot be undone.").arg(username),
+        tr("Are you sure you want to remove student '%1'?\nThis action cannot be undone.").arg(studentname),
         QMessageBox::Yes | QMessageBox::No);
 
     if (reply == QMessageBox::Yes) {
-        bool success = m_dbHandler->removeUser(userId);
+        bool success = m_dbHandler->removeStudent(studentId);
 
         if (success) {
-            appendLog(tr("User '%1' removed successfully").arg(username), "INFO");
-            refreshUsersList();
+            appendLog(tr("Student '%1' removed successfully").arg(studentname), "INFO");
+            refreshStudentsList();
         } else {
-            QMessageBox::critical(this, tr("Error"), tr("Failed to remove user"));
-            appendLog(tr("Failed to remove user '%1'").arg(username), "ERROR");
+            QMessageBox::critical(this, tr("Error"), tr("Failed to remove student"));
+            appendLog(tr("Failed to remove student '%1'").arg(studentname), "ERROR");
         }
     }
 }
@@ -1309,7 +1439,7 @@ void TupServerWindow::refreshProjectsList()
 
         m_projectsTable->setItem(row, 0, new QTableWidgetItem(QString::number(project.projectId)));
         m_projectsTable->setItem(row, 1, new QTableWidgetItem(project.title));
-        m_projectsTable->setItem(row, 2, new QTableWidgetItem(project.ownerUsername));
+        m_projectsTable->setItem(row, 2, new QTableWidgetItem(project.ownerStudentname));
         m_projectsTable->setItem(row, 3, new QTableWidgetItem(project.isShared ? tr("Yes") : tr("No")));
         m_projectsTable->setItem(row, 4, new QTableWidgetItem(project.createdAt));
     }
@@ -1344,7 +1474,7 @@ void TupServerWindow::updateCollaboratorsDisplay(int projectId)
         int row = m_collaboratorsTable->rowCount();
         m_collaboratorsTable->insertRow(row);
 
-        m_collaboratorsTable->setItem(row, 0, new QTableWidgetItem(collab.username));
+        m_collaboratorsTable->setItem(row, 0, new QTableWidgetItem(collab.studentname));
         m_collaboratorsTable->setItem(row, 1, new QTableWidgetItem(collab.name));
         QString permission = collab.permissionLevel == 1 ? tr("Editor") : tr("Viewer");
         m_collaboratorsTable->setItem(row, 2, new QTableWidgetItem(permission));
@@ -1385,15 +1515,38 @@ void TupServerWindow::createProject()
     fpsSpin->setValue(12);
     formLayout->addRow(tr("FPS:"), fpsSpin);
 
+
     // Owner selection
     QComboBox *ownerCombo = new QComboBox();
-    QList<DatabaseHandler::UserInfo> users = m_dbHandler->getAllUsers();
-    for (const DatabaseHandler::UserInfo &user : users) {
-        if (user.isEnabled && user.isCreator) {
-            ownerCombo->addItem(user.username + " (" + user.name + ")", user.userId);
+    QList<DatabaseHandler::StudentInfo> students = m_dbHandler->getAllStudents();
+    for (const DatabaseHandler::StudentInfo &student : students) {
+        if (student.isEnabled && student.isCreator) {
+            ownerCombo->addItem(student.studentname + " (" + student.name + ")", student.studentId);
         }
     }
     formLayout->addRow(tr("Owner:"), ownerCombo);
+
+    // Period selection (after Owner)
+    QComboBox *periodCombo = new QComboBox();
+    QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
+    int bestFitIndex = -1;
+    QDate currentDate = QDate::currentDate();
+    for (int i = 0; i < periods.size(); ++i) {
+        const DatabaseHandler::PeriodInfo &period = periods[i];
+        QString label = period.name + " (" + period.startDate + " - " + period.endDate + ")";
+        periodCombo->addItem(label, period.periodId);
+        QDate start = QDate::fromString(period.startDate, "yyyy-MM-dd");
+        QDate end = QDate::fromString(period.endDate, "yyyy-MM-dd");
+        if (start.isValid() && end.isValid() && currentDate >= start && currentDate <= end && bestFitIndex == -1) {
+            bestFitIndex = i;
+        }
+    }
+    if (bestFitIndex != -1) {
+        periodCombo->setCurrentIndex(bestFitIndex);
+    } else if (periodCombo->count() > 0) {
+        periodCombo->setCurrentIndex(0);
+    }
+    formLayout->addRow(tr("Period:"), periodCombo);
 
     mainLayout->addLayout(formLayout);
 
@@ -1401,9 +1554,9 @@ void TupServerWindow::createProject()
     QGroupBox *collaboratorsGroup = new QGroupBox(tr("Assign Collaborators"));
     QHBoxLayout *collaboratorsLayout = new QHBoxLayout(collaboratorsGroup);
 
-    // Available users list (left)
+    // Available students list (left)
     QVBoxLayout *availableLayout = new QVBoxLayout();
-    QLabel *availableLabel = new QLabel(tr("Available Users:"));
+    QLabel *availableLabel = new QLabel(tr("Available Students:"));
     availableLayout->addWidget(availableLabel);
     QLineEdit *searchAvailableEdit = new QLineEdit();
     searchAvailableEdit->setPlaceholderText(tr("Search students..."));
@@ -1418,7 +1571,7 @@ void TupServerWindow::createProject()
     buttonLayout->addStretch();
     QPushButton *addCollabButton = new QPushButton(" " + tr("Add"));
     addCollabButton->setIcon(style()->standardIcon(QStyle::SP_ArrowRight));
-    addCollabButton->setToolTip(tr("Add selected users as collaborators"));
+    addCollabButton->setToolTip(tr("Add selected students as collaborators"));
     buttonLayout->addWidget(addCollabButton);
     QPushButton *removeCollabButton = new QPushButton(" " + tr("Remove"));
     removeCollabButton->setIcon(style()->standardIcon(QStyle::SP_ArrowLeft));
@@ -1437,21 +1590,21 @@ void TupServerWindow::createProject()
     collaboratorsLayout->addLayout(selectedLayout);
 
     // Lambda to rebuild available list based on selected owner and search filter
-    auto rebuildAvailableList = [&users, availableList, selectedList, ownerCombo, searchAvailableEdit]() {
+    auto rebuildAvailableList = [&students, availableList, selectedList, ownerCombo, searchAvailableEdit]() {
         int currentOwnerId = ownerCombo->currentData().toInt();
         QString filter = searchAvailableEdit->text().trimmed();
-        // Collect already selected user IDs
+        // Collect already selected student IDs
         QSet<int> selectedIds;
         for (int i = 0; i < selectedList->count(); i++) {
             selectedIds.insert(selectedList->item(i)->data(Qt::UserRole).toInt());
         }
         availableList->clear();
-        for (const DatabaseHandler::UserInfo &user : users) {
-            if (user.isEnabled && user.userId != currentOwnerId && !selectedIds.contains(user.userId)) {
-                QString displayText = user.username + " (" + user.name + ")";
+        for (const DatabaseHandler::StudentInfo &student : students) {
+            if (student.isEnabled && student.studentId != currentOwnerId && !selectedIds.contains(student.studentId)) {
+                QString displayText = student.studentname + " (" + student.name + ")";
                 if (filter.isEmpty() || displayText.contains(filter, Qt::CaseInsensitive)) {
                     QListWidgetItem *item = new QListWidgetItem(displayText);
-                    item->setData(Qt::UserRole, user.userId);
+                    item->setData(Qt::UserRole, student.studentId);
                     availableList->addItem(item);
                 }
             }
@@ -1470,7 +1623,7 @@ void TupServerWindow::createProject()
         }
         rebuildAvailableList();
     });
-    // Filter available list as user types
+    // Filter available list as student types
     connect(searchAvailableEdit, &QLineEdit::textChanged, rebuildAvailableList);
 
     // Add button: move selected from available to selected
@@ -1509,7 +1662,7 @@ void TupServerWindow::createProject()
         QString title = titleEdit->text().trimmed();
         QString description = descriptionEdit->text().trimmed();
         int ownerId = ownerCombo->currentData().toInt();
-        QString ownerUsername = ownerCombo->currentText().split(" (").first();
+        QString ownerStudentname = ownerCombo->currentText().split(" (").first();
         QSize dimension = dimensionCombo->currentData().toSize();
         int fps = fpsSpin->value();
 
@@ -1525,12 +1678,12 @@ void TupServerWindow::createProject()
         QList<int> collaboratorIds;
         for (int i = 0; i < selectedList->count(); i++) {
             QListWidgetItem *item = selectedList->item(i);
-            int userId = item->data(Qt::UserRole).toInt();
-            collaboratorIds.append(userId);
+            int studentId = item->data(Qt::UserRole).toInt();
+            collaboratorIds.append(studentId);
         }
 
         // Create the actual project file on disk
-        bool fileCreated = FileManager::createEmptyProjectFile(title, description, ownerUsername, 
+        bool fileCreated = FileManager::createEmptyProjectFile(title, description, ownerStudentname, 
                                                                 ownerId, filename, dimension, fps);
 
         if (!fileCreated) {
@@ -1539,8 +1692,11 @@ void TupServerWindow::createProject()
             return;
         }
 
-        // Add to database
-        bool dbSuccess = m_dbHandler->createEmptyProject(title, description, ownerId, filename, collaboratorIds);
+        // Get selected period
+        int periodId = periodCombo->currentData().toInt();
+
+        // Add to database with periodId
+        bool dbSuccess = m_dbHandler->createEmptyProject(title, description, ownerId, filename, collaboratorIds, periodId);
 
         if (dbSuccess) {
             appendLog(tr("Project '%1' created with %2 collaborators").arg(title).arg(collaboratorIds.count()), "INFO");
@@ -1562,7 +1718,7 @@ void TupServerWindow::manageCollaborators()
 
     int projectId = m_projectsTable->item(currentRow, 0)->text().toInt();
     QString projectTitle = m_projectsTable->item(currentRow, 1)->text();
-    QString ownerUsername = m_projectsTable->item(currentRow, 2)->text();
+    QString ownerStudentname = m_projectsTable->item(currentRow, 2)->text();
 
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Manage Collaborators - %1").arg(projectTitle));
@@ -1571,16 +1727,16 @@ void TupServerWindow::manageCollaborators()
 
     QVBoxLayout *mainLayout = new QVBoxLayout(&dialog);
 
-    QLabel *infoLabel = new QLabel(tr("Owner: %1").arg(ownerUsername));
+    QLabel *infoLabel = new QLabel(tr("Owner: %1").arg(ownerStudentname));
     infoLabel->setStyleSheet("font-weight: bold;");
     mainLayout->addWidget(infoLabel);
 
     // Dual-list layout
     QHBoxLayout *listsLayout = new QHBoxLayout();
 
-    // Available users list (left)
+    // Available students list (left)
     QVBoxLayout *availableLayout = new QVBoxLayout();
-    QLabel *availableLabel = new QLabel(tr("Available Users:"));
+    QLabel *availableLabel = new QLabel(tr("Available Students:"));
     availableLayout->addWidget(availableLabel);
     QLineEdit *searchAvailableEdit = new QLineEdit();
     searchAvailableEdit->setPlaceholderText(tr("Search students..."));
@@ -1595,12 +1751,16 @@ void TupServerWindow::manageCollaborators()
     buttonLayout->addStretch();
     QPushButton *addButton = new QPushButton(" " + tr("Add"));
     addButton->setIcon(style()->standardIcon(QStyle::SP_ArrowRight));
-    addButton->setToolTip(tr("Add selected users as collaborators"));
+    addButton->setToolTip(tr("Add selected students as collaborators"));
     buttonLayout->addWidget(addButton);
     QPushButton *removeButton = new QPushButton(" " + tr("Remove"));
     removeButton->setIcon(style()->standardIcon(QStyle::SP_ArrowLeft));
     removeButton->setToolTip(tr("Remove selected collaborators"));
     buttonLayout->addWidget(removeButton);
+    // Disable remove button if currentList is empty
+    auto updateRemoveButtonState = [removeButton](QListWidget *currentList) {
+        removeButton->setEnabled(currentList->count() > 0);
+    };
     buttonLayout->addStretch();
     listsLayout->addLayout(buttonLayout);
 
@@ -1612,37 +1772,42 @@ void TupServerWindow::manageCollaborators()
     currentList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     currentLayout->addWidget(currentList);
     listsLayout->addLayout(currentLayout);
+    // Initial state
+    updateRemoveButtonState(currentList);
+    // Update state on changes
+    QObject::connect(currentList->model(), &QAbstractItemModel::rowsInserted, [currentList, updateRemoveButtonState]() { updateRemoveButtonState(currentList); });
+    QObject::connect(currentList->model(), &QAbstractItemModel::rowsRemoved, [currentList, updateRemoveButtonState]() { updateRemoveButtonState(currentList); });
 
     mainLayout->addLayout(listsLayout);
 
     // Populate current collaborators
     QList<DatabaseHandler::CollaboratorInfo> collaborators = m_dbHandler->getProjectCollaborators(projectId);
     for (const DatabaseHandler::CollaboratorInfo &collab : collaborators) {
-        QListWidgetItem *item = new QListWidgetItem(collab.username + " (" + collab.name + ")");
-        item->setData(Qt::UserRole, collab.userId);
+        QListWidgetItem *item = new QListWidgetItem(collab.studentname + " (" + collab.name + ")");
+        item->setData(Qt::UserRole, collab.studentId);
         currentList->addItem(item);
     }
 
-    // Populate available users
-    QList<DatabaseHandler::UserInfo> users = m_dbHandler->getAllUsers();
+    // Populate available students
+    QList<DatabaseHandler::StudentInfo> students = m_dbHandler->getAllStudents();
     QSet<int> existingCollabIds;
     for (const DatabaseHandler::CollaboratorInfo &collab : collaborators) {
-        existingCollabIds.insert(collab.userId);
+        existingCollabIds.insert(collab.studentId);
     }
 
-    // Store all available users for filtering
-    QList<QPair<QString, int>> availableUsersData;
-    for (const DatabaseHandler::UserInfo &user : users) {
-        if (user.isEnabled && user.username != ownerUsername && !existingCollabIds.contains(user.userId)) {
-            QString displayText = user.username + " (" + user.name + ")";
-            availableUsersData.append(qMakePair(displayText, user.userId));
+    // Store all available students for filtering
+    QList<QPair<QString, int>> availableStudentsData;
+    for (const DatabaseHandler::StudentInfo &student : students) {
+        if (student.isEnabled && student.studentname != ownerStudentname && !existingCollabIds.contains(student.studentId)) {
+            QString displayText = student.studentname + " (" + student.name + ")";
+            availableStudentsData.append(qMakePair(displayText, student.studentId));
         }
     }
     // Helper to repopulate availableList based on filter
-    auto filterAvailableList = [availableList, &availableUsersData, searchAvailableEdit]() {
+    auto filterAvailableList = [availableList, &availableStudentsData, searchAvailableEdit]() {
         QString filter = searchAvailableEdit->text().trimmed();
         availableList->clear();
-        for (const auto &pair : availableUsersData) {
+        for (const auto &pair : availableStudentsData) {
             if (filter.isEmpty() || pair.first.contains(filter, Qt::CaseInsensitive)) {
                 QListWidgetItem *item = new QListWidgetItem(pair.first);
                 item->setData(Qt::UserRole, pair.second);
@@ -1657,11 +1822,11 @@ void TupServerWindow::manageCollaborators()
     connect(addButton, &QPushButton::clicked, [this, projectId, currentList, availableList]() {
         QList<QListWidgetItem*> selectedItems = availableList->selectedItems();
         for (QListWidgetItem *item : selectedItems) {
-            int userId = item->data(Qt::UserRole).toInt();
-            if (m_dbHandler->addCollaborator(projectId, userId)) {
+            int studentId = item->data(Qt::UserRole).toInt();
+            if (m_dbHandler->addCollaborator(projectId, studentId)) {
                 // Move to current list
                 QListWidgetItem *newItem = new QListWidgetItem(item->text());
-                newItem->setData(Qt::UserRole, userId);
+                newItem->setData(Qt::UserRole, studentId);
                 currentList->addItem(newItem);
                 delete availableList->takeItem(availableList->row(item));
             }
@@ -1674,11 +1839,11 @@ void TupServerWindow::manageCollaborators()
     connect(removeButton, &QPushButton::clicked, [this, projectId, currentList, availableList]() {
         QList<QListWidgetItem*> selectedItems = currentList->selectedItems();
         for (QListWidgetItem *item : selectedItems) {
-            int userId = item->data(Qt::UserRole).toInt();
-            if (m_dbHandler->removeCollaborator(projectId, userId)) {
+            int studentId = item->data(Qt::UserRole).toInt();
+            if (m_dbHandler->removeCollaborator(projectId, studentId)) {
                 // Move to available list
                 QListWidgetItem *newItem = new QListWidgetItem(item->text());
-                newItem->setData(Qt::UserRole, userId);
+                newItem->setData(Qt::UserRole, studentId);
                 availableList->addItem(newItem);
                 delete currentList->takeItem(currentList->row(item));
             }
@@ -1703,7 +1868,7 @@ void TupServerWindow::removeProject()
 
     int projectId = m_projectsTable->item(currentRow, 0)->text().toInt();
     QString projectTitle = m_projectsTable->item(currentRow, 1)->text();
-    QString ownerUsername = m_projectsTable->item(currentRow, 2)->text();
+    QString ownerStudentname = m_projectsTable->item(currentRow, 2)->text();
 
     // Confirmation dialog
     QMessageBox::StandardButton reply = QMessageBox::question(
@@ -1713,7 +1878,7 @@ void TupServerWindow::removeProject()
            "This will remove the project from the database and delete all associated files.\n"
            "This action cannot be undone.")
             .arg(projectTitle)
-            .arg(ownerUsername),
+            .arg(ownerStudentname),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No
     );
@@ -1737,7 +1902,7 @@ void TupServerWindow::removeProject()
             QString repoDir = kAppProp->repositoryDir();
             if (repoDir.endsWith("/"))
                 repoDir.chop(1);
-            QString projectPath = repoDir + "/users/" + QString::number(ownerId) + "/projects/" + filename + ".tup";
+            QString projectPath = repoDir + "/" + QString::number(ownerId) + "/projects/" + filename + ".tup";
             
             QFile projectFile(projectPath);
             if (projectFile.exists()) {
@@ -1803,7 +1968,7 @@ void TupServerWindow::viewProjectChat()
     // Chat messages table
     QTableWidget *chatTable = new QTableWidget();
     chatTable->setColumnCount(4);
-    chatTable->setHorizontalHeaderLabels({tr("Time"), tr("User"), tr("Type"), tr("Message")});
+    chatTable->setHorizontalHeaderLabels({tr("Time"), tr("Student"), tr("Type"), tr("Message")});
     chatTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     chatTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     chatTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -1821,7 +1986,7 @@ void TupServerWindow::viewProjectChat()
         chatTable->insertRow(row);
 
         chatTable->setItem(row, 0, new QTableWidgetItem(msg.createdAt));
-        chatTable->setItem(row, 1, new QTableWidgetItem(msg.username));
+        chatTable->setItem(row, 1, new QTableWidgetItem(msg.studentname));
         chatTable->setItem(row, 2, new QTableWidgetItem(msg.messageType));
         chatTable->setItem(row, 3, new QTableWidgetItem(msg.message));
     }
@@ -1851,10 +2016,10 @@ void TupServerWindow::sendBroadcastMessage()
         return;
     }
 
-    // Check if there are connected users
-    if (m_connectedUsersTable->rowCount() == 0) {
-        QMessageBox::information(this, tr("No Connected Users"),
-            tr("There are no users currently connected to the server."));
+    // Check if there are connected students
+    if (m_connectedStudentsTable->rowCount() == 0) {
+        QMessageBox::information(this, tr("No Connected Students"),
+            tr("There are no students currently connected to the server."));
         return;
     }
 
@@ -1908,82 +2073,357 @@ void TupServerWindow::sendBroadcastMessage()
 
 void TupServerWindow::importUsersFromCsv()
 {
-    QString fileName = QFileDialog::getOpenFileName(this, tr("Select Users File"), QString(), tr("CSV Files (*.csv);;All Files (*)"));
+    QString fileName = QFileDialog::getOpenFileName(this, tr("Select Students File"), QString(), tr("CSV Files (*.csv);;All Files (*)"));
     if (fileName.isEmpty())
         return;
 
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, tr("Import Users"), tr("Failed to open file: %1").arg(fileName));
+        QMessageBox::warning(this, tr("Import Students"), tr("Failed to open file: %1").arg(fileName));
         return;
     }
 
     QTextStream in(&file);
     QString headerLine = in.readLine();
     if (headerLine.isNull()) {
-        QMessageBox::warning(this, tr("Import Users"), tr("CSV file is empty."));
+        QMessageBox::warning(this, tr("Import Students"), tr("CSV file is empty."));
         return;
     }
 
     QStringList headers = headerLine.split(",");
-    // Expected: Name, Class, Username, Password, Enabled, Creator
+    // Expected: Name, Class, Studentname, Password, Enabled, Creator
     int nameIdx = headers.indexOf("Name");
     int classIdx = headers.indexOf("Class");
-    int usernameIdx = headers.indexOf("Username");
+    int studentnameIdx = headers.indexOf("Studentname");
     int passwordIdx = headers.indexOf("Password");
     int enabledIdx = headers.indexOf("Enabled");
     int creatorIdx = headers.indexOf("Creator");
-    if (nameIdx == -1 || classIdx == -1 || usernameIdx == -1 || passwordIdx == -1 || enabledIdx == -1 || creatorIdx == -1) {
-        QMessageBox::warning(this, tr("Import Users"), tr("CSV header must include: Name, Class, Username, Password, Enabled, Creator"));
+    if (nameIdx == -1 || classIdx == -1 || studentnameIdx == -1 || passwordIdx == -1 || enabledIdx == -1 || creatorIdx == -1) {
+        QMessageBox::warning(this, tr("Import Students"), tr("CSV header must include: Name, Class, Studentname, Password, Enabled, Creator"));
         return;
     }
 
-    QList<QVariantMap> usersToImport;
+    QList<QVariantMap> studentsToImport;
     while (!in.atEnd()) {
         QString line = in.readLine();
         if (line.trimmed().isEmpty()) continue;
         QStringList fields = line.split(",");
         if (fields.size() < headers.size()) continue;
-        QVariantMap user;
-        user["name"] = fields[nameIdx].trimmed();
-        user["class"] = fields[classIdx].trimmed();
-        user["username"] = fields[usernameIdx].trimmed();
-        user["password"] = fields[passwordIdx].trimmed();
-        user["enabled"] = fields[enabledIdx].trimmed();
-        user["creator"] = fields[creatorIdx].trimmed();
-        usersToImport.append(user);
+        QVariantMap student;
+        student["name"] = fields[nameIdx].trimmed();
+        student["class"] = fields[classIdx].trimmed();
+        student["studentname"] = fields[studentnameIdx].trimmed();
+        student["password"] = fields[passwordIdx].trimmed();
+        student["enabled"] = fields[enabledIdx].trimmed();
+        student["creator"] = fields[creatorIdx].trimmed();
+        studentsToImport.append(student);
     }
 
-    if (usersToImport.isEmpty()) {
-        QMessageBox::information(this, tr("Import Users"), tr("No valid user records found in the file."));
+    if (studentsToImport.isEmpty()) {
+        QMessageBox::information(this, tr("Import Students"), tr("No valid student records found in the file."));
         return;
     }
 
     int insertedCount = 0;
-    for (const QVariantMap &user : usersToImport) {
-        QString username = user["username"].toString();
-        if (username.isEmpty())
+    for (const QVariantMap &student : studentsToImport) {
+        QString studentname = student["studentname"].toString();
+        if (studentname.isEmpty())
             continue;
-        if (m_dbHandler->usernameExists(username)) {
-            appendLog(tr("Skipped user '%1': username already exists").arg(username), "WARN");
+        if (m_dbHandler->studentnameExists(studentname)) {
+            appendLog(tr("Skipped student '%1': studentname already exists").arg(studentname), "WARN");
             continue;
         }
-        QString name = user["name"].toString();
-        QString password = user["password"].toString();
-        // Hash the password with MD5 to match Add/Edit User logic
+        QString name = student["name"].toString();
+        QString password = student["password"].toString();
+        // Hash the password with MD5 to match Add/Edit Student logic
         QCryptographicHash md5(QCryptographicHash::Md5);
         md5.addData(password.toUtf8());
         QString hashedPassword = md5.result().toHex();
-        bool enabled = (user["enabled"].toString().toLower() == "true" || user["enabled"].toString() == "1");
-        bool creator = (user["creator"].toString().toLower() == "true" || user["creator"].toString() == "1");
-        QString userClass = user["class"].toString();
-        if (m_dbHandler->addUser(username, name, hashedPassword, enabled, creator, userClass)) {
+        bool enabled = (student["enabled"].toString().toLower() == "true" || student["enabled"].toString() == "1");
+        bool creator = (student["creator"].toString().toLower() == "true" || student["creator"].toString() == "1");
+        QString studentClass = student["class"].toString();
+        if (m_dbHandler->addStudent(studentname, name, hashedPassword, enabled, creator, studentClass)) {
             insertedCount++;
         } else {
-            appendLog(tr("Failed to insert user '%1'").arg(username), "ERROR");
+            appendLog(tr("Failed to insert student '%1'").arg(studentname), "ERROR");
         }
     }
-    appendLog(tr("CSV import complete. %1 users inserted.").arg(insertedCount), "INFO");
-    QMessageBox::information(this, tr("Import Users"), tr("Import complete. %1 users inserted.").arg(insertedCount));
-    refreshUsersList();
+    appendLog(tr("CSV import complete. %1 students inserted.").arg(insertedCount), "INFO");
+    QMessageBox::information(this, tr("Import Students"), tr("Import complete. %1 students inserted.").arg(insertedCount));
+    refreshStudentsList(m_studentFilterEdit ? m_studentFilterEdit->text() : QString());
+}
+
+// === Classes Tab Logic ===
+
+void TupServerWindow::refreshClassesList() {
+    m_classesTable->setRowCount(0);
+    QList<DatabaseHandler::ClassInfo> classes = m_dbHandler->getAllClasses();
+    for (const auto &c : classes) {
+        int row = m_classesTable->rowCount();
+        m_classesTable->insertRow(row);
+        m_classesTable->setItem(row, 0, new QTableWidgetItem(QString::number(c.classId)));
+        m_classesTable->setItem(row, 1, new QTableWidgetItem(c.name));
+        m_classesTable->setItem(row, 2, new QTableWidgetItem(QString::number(c.year)));
+    }
+}
+
+void TupServerWindow::refreshPeriodsList() {
+    m_periodsTable->setRowCount(0);
+    QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
+    for (const auto &p : periods) {
+        int row = m_periodsTable->rowCount();
+        m_periodsTable->insertRow(row);
+        m_periodsTable->setItem(row, 0, new QTableWidgetItem(QString::number(p.periodId)));
+        m_periodsTable->setItem(row, 1, new QTableWidgetItem(p.name));
+        m_periodsTable->setItem(row, 2, new QTableWidgetItem(QString::number(p.year)));
+        m_periodsTable->setItem(row, 3, new QTableWidgetItem(p.startDate + " - " + p.endDate));
+    }
+}
+
+void TupServerWindow::onAddClass() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Add Class"));
+    dialog.setMinimumWidth(360);
+    QFormLayout form(&dialog);
+    QLineEdit nameEdit, descEdit;
+    QComboBox yearCombo;
+    for (int y = 2026; y <= 2032; ++y) yearCombo.addItem(QString::number(y));
+    form.addRow(tr("Name:"), &nameEdit);
+    form.addRow(tr("Year:"), &yearCombo);
+    form.addRow(tr("Description:"), &descEdit);
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    form.addRow(&buttons);
+    QPushButton *okButton = buttons.button(QDialogButtonBox::Ok);
+    QLabel *warningLabel = new QLabel;
+    warningLabel->setStyleSheet("color: red");
+    form.addRow("", warningLabel);
+    auto validateForm = [&]() {
+        QString name = nameEdit.text().trimmed();
+        if (name.isEmpty()) {
+            warningLabel->setText(tr("Class name cannot be empty."));
+            okButton->setEnabled(false);
+        } else {
+            warningLabel->setText("");
+            okButton->setEnabled(true);
+        }
+    };
+    validateForm();
+    QObject::connect(&nameEdit, &QLineEdit::textChanged, &dialog, validateForm);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString name = nameEdit.text().trimmed();
+        int year = yearCombo.currentText().toInt();
+        if (m_dbHandler->addClass(name, year, descEdit.text().trimmed())) {
+            refreshClassesList();
+        } else {
+            QMessageBox::critical(this, tr("Error"), tr("Failed to add class. It may already exist or the input is invalid."));
+        }
+    }
+}
+
+void TupServerWindow::onEditClass() {
+    int row = m_classesTable->currentRow();
+    if (row < 0) return;
+    int classId = m_classesTable->item(row, 0)->text().toInt();
+    QString name = m_classesTable->item(row, 1)->text();
+    int year = m_classesTable->item(row, 2)->text().toInt();
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Edit Class"));
+    QFormLayout form(&dialog);
+    QLineEdit nameEdit(name), descEdit;
+    QComboBox yearCombo;
+    for (int y = 2026; y <= 2032; ++y) yearCombo.addItem(QString::number(y));
+    int yearIndex = yearCombo.findText(QString::number(year));
+    if (yearIndex >= 0) yearCombo.setCurrentIndex(yearIndex);
+    form.addRow(tr("Name:"), &nameEdit);
+    form.addRow(tr("Year:"), &yearCombo);
+    form.addRow(tr("Description:"), &descEdit);
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    form.addRow(&buttons);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted) {
+        int newYear = yearCombo.currentText().toInt();
+        if (m_dbHandler->updateClass(classId, nameEdit.text(), newYear, descEdit.text())) {
+            refreshClassesList();
+        }
+    }
+}
+
+void TupServerWindow::onRemoveClass() {
+    int row = m_classesTable->currentRow();
+    if (row < 0) return;
+    int classId = m_classesTable->item(row, 0)->text().toInt();
+    // Check for students or projects linked to this class
+    bool hasStudents = false, hasProjects = false;
+    QList<DatabaseHandler::StudentInfo> students = m_dbHandler->getAllStudents();
+    for (const auto &student : students) {
+        if (student.classId == classId) {
+            hasStudents = true;
+            break;
+        }
+    }
+    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
+    for (const auto &project : projects) {
+        if (project.classId == classId) {
+            hasProjects = true;
+            break;
+        }
+    }
+    if (hasStudents || hasProjects) {
+        QString msg = tr("This class cannot be removed because it has associated ");
+        if (hasStudents && hasProjects)
+            msg += tr("students and projects.");
+        else if (hasStudents)
+            msg += tr("students.");
+        else
+            msg += tr("projects.");
+        QMessageBox::warning(this, tr("Remove Class"), msg);
+        return;
+    }
+    if (QMessageBox::question(this, tr("Remove Class"), tr("Are you sure?")) == QMessageBox::Yes) {
+        if (m_dbHandler->removeClass(classId)) {
+            refreshClassesList();
+        }
+    }
+}
+
+void TupServerWindow::onAddPeriod() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Add Period"));
+    dialog.setMinimumWidth(360);
+    QFormLayout form(&dialog);
+    QLineEdit nameEdit;
+    QComboBox yearCombo;
+    for (int y = 2026; y <= 2032; ++y) yearCombo.addItem(QString::number(y));
+    QDateEdit startDateEdit, endDateEdit;
+    startDateEdit.setCalendarPopup(true);
+    endDateEdit.setCalendarPopup(true);
+    startDateEdit.setDisplayFormat("yyyy-MM-dd");
+    endDateEdit.setDisplayFormat("yyyy-MM-dd");
+    startDateEdit.setDate(QDate::currentDate());
+    endDateEdit.setDate(QDate::currentDate());
+    form.addRow(tr("Name:"), &nameEdit);
+    form.addRow(tr("Year:"), &yearCombo);
+    form.addRow(tr("Start Date:"), &startDateEdit);
+    form.addRow(tr("End Date:"), &endDateEdit);
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    form.addRow(&buttons);
+    QPushButton *okButton = buttons.button(QDialogButtonBox::Ok);
+    QLabel *dateWarning = new QLabel;
+    dateWarning->setStyleSheet("color: red");
+    form.addRow("", dateWarning);
+    auto validateForm = [&]() {
+        if (nameEdit.text().trimmed().isEmpty()) {
+            dateWarning->setText(tr("Name cannot be empty."));
+            okButton->setEnabled(false);
+        } else if (endDateEdit.date() <= startDateEdit.date()) {
+            dateWarning->setText(tr("End Date must be after Start Date."));
+            okButton->setEnabled(false);
+        } else {
+            dateWarning->setText("");
+            okButton->setEnabled(true);
+        }
+    };
+    validateForm();
+    QObject::connect(&startDateEdit, &QDateEdit::dateChanged, &dialog, validateForm);
+    QObject::connect(&endDateEdit, &QDateEdit::dateChanged, &dialog, validateForm);
+    QObject::connect(&nameEdit, &QLineEdit::textChanged, &dialog, validateForm);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted) {
+        int year = yearCombo.currentText().toInt();
+        QString startDateStr = startDateEdit.date().toString("yyyy-MM-dd");
+        QString endDateStr = endDateEdit.date().toString("yyyy-MM-dd");
+        if (m_dbHandler->addPeriod(nameEdit.text(), year, startDateStr, endDateStr)) {
+            refreshPeriodsList();
+        }
+    }
+}
+
+void TupServerWindow::onEditPeriod() {
+    int row = m_periodsTable->currentRow();
+    if (row < 0) return;
+    int periodId = m_periodsTable->item(row, 0)->text().toInt();
+    QString name = m_periodsTable->item(row, 1)->text();
+    int year = m_periodsTable->item(row, 2)->text().toInt();
+    QStringList dates = m_periodsTable->item(row, 3)->text().split(" - ");
+    QString start = dates.value(0), end = dates.value(1);
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Edit Period"));
+    dialog.setMinimumWidth(360);
+    QFormLayout form(&dialog);
+    QLineEdit nameEdit(name);
+    QComboBox yearCombo;
+    for (int y = 2026; y <= 2032; ++y) yearCombo.addItem(QString::number(y));
+    int yearIndex = yearCombo.findText(QString::number(year));
+    if (yearIndex >= 0) yearCombo.setCurrentIndex(yearIndex);
+    QDateEdit startDateEdit, endDateEdit;
+    startDateEdit.setCalendarPopup(true);
+    endDateEdit.setCalendarPopup(true);
+    startDateEdit.setDisplayFormat("yyyy-MM-dd");
+    endDateEdit.setDisplayFormat("yyyy-MM-dd");
+    startDateEdit.setDate(QDate::fromString(start, "yyyy-MM-dd"));
+    endDateEdit.setDate(QDate::fromString(end, "yyyy-MM-dd"));
+    form.addRow(tr("Name:"), &nameEdit);
+    form.addRow(tr("Year:"), &yearCombo);
+    form.addRow(tr("Start Date:"), &startDateEdit);
+    form.addRow(tr("End Date:"), &endDateEdit);
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    form.addRow(&buttons);
+    QPushButton *okButton = buttons.button(QDialogButtonBox::Ok);
+    QLabel *dateWarning = new QLabel;
+    dateWarning->setStyleSheet("color: red");
+    form.addRow("", dateWarning);
+    auto validateForm = [&]() {
+        if (nameEdit.text().trimmed().isEmpty()) {
+            dateWarning->setText(tr("Name cannot be empty."));
+            okButton->setEnabled(false);
+        } else if (endDateEdit.date() <= startDateEdit.date()) {
+            dateWarning->setText(tr("End Date must be after Start Date."));
+            okButton->setEnabled(false);
+        } else {
+            dateWarning->setText("");
+            okButton->setEnabled(true);
+        }
+    };
+    validateForm();
+    QObject::connect(&startDateEdit, &QDateEdit::dateChanged, &dialog, validateForm);
+    QObject::connect(&endDateEdit, &QDateEdit::dateChanged, &dialog, validateForm);
+    QObject::connect(&nameEdit, &QLineEdit::textChanged, &dialog, validateForm);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted) {
+        int newYear = yearCombo.currentText().toInt();
+        QString startDateStr = startDateEdit.date().toString("yyyy-MM-dd");
+        QString endDateStr = endDateEdit.date().toString("yyyy-MM-dd");
+        if (m_dbHandler->updatePeriod(periodId, nameEdit.text(), newYear, startDateStr, endDateStr)) {
+            refreshPeriodsList();
+        }
+    }
+}
+
+void TupServerWindow::onRemovePeriod() {
+    int row = m_periodsTable->currentRow();
+    if (row < 0) return;
+    int periodId = m_periodsTable->item(row, 0)->text().toInt();
+    // Check for projects linked to this period
+    bool hasProjects = false;
+    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
+    for (const auto &project : projects) {
+        if (project.periodId == periodId) {
+            hasProjects = true;
+            break;
+        }
+    }
+    if (hasProjects) {
+        QMessageBox::warning(this, tr("Remove Period"), tr("This period cannot be removed because it has associated projects."));
+        return;
+    }
+    if (QMessageBox::question(this, tr("Remove Period"), tr("Are you sure?")) == QMessageBox::Yes) {
+        if (m_dbHandler->removePeriod(periodId)) {
+            refreshPeriodsList();
+        }
+    }
 }

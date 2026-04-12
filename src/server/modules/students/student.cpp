@@ -31,53 +31,111 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
-#ifndef USER_H
-#define USER_H
+#include "student.h"
 
-#include <QString>
 #include <QList>
+#include <QDomDocument>
 
-class QDomDocument;
-class QDomElement;
-
-class User
+Student::Student()
 {
-    public:
-        explicit User();
-        ~User();
+}
 
-        void setUID(int uid);        
-        void setName(const QString &name);
-        void setLogin(const QString &login);
-        void setPassword(const QString &password);
-        void setEnabledFlag(bool flag);
-        void setCreatorFlag(bool flag);
-        void setProjectsPrivacyFlag(bool flag);
-        void setFilesPrivacyFlag(bool flag);
-        void setWorksPrivacyFlag(bool flag);
-       
-        int uid(); 
-        QString name() const;
-        QString login() const;
-        QString password() const;
-        bool isCreator();
-        bool isEnabled();
-        bool projectsPrivacyFlag();
-        bool filesPrivacyFlag();
-        bool worksPrivacyFlag();
-        
-        bool operator==(const User& user);
-        
-    private:
-        int m_uid;
-        QString m_name;
-        QString m_login;
-        QString m_password;
-        bool m_isEnabled;
-        bool m_isCreator;
-        bool m_projectsPrivacyFlag;
-        bool m_filesPrivacyFlag;
-        bool m_worksPrivacyFlag;
-};
+Student::~Student()
+{
+}
 
-#endif
+void Student::setUID(int uid)
+{
+    m_uid = uid;
+}
+
+void Student::setName(const QString &name)
+{
+    m_name = name;
+}
+
+void Student::setLogin(const QString &login)
+{
+    m_login = login;
+}
+
+void Student::setPassword(const QString &password)
+{
+    m_password = password;
+}
+
+void Student::setEnabledFlag(bool flag)
+{
+    m_isEnabled = flag;
+}
+
+void Student::setCreatorFlag(bool flag)
+{
+    m_isCreator = flag;
+}
+
+void Student::setProjectsPrivacyFlag(bool flag)
+{
+    m_projectsPrivacyFlag = flag;
+}
+
+void Student::setFilesPrivacyFlag(bool flag)
+{
+    m_filesPrivacyFlag = flag;
+}
+
+void Student::setWorksPrivacyFlag(bool flag)
+{
+    m_worksPrivacyFlag = flag;
+}
+
+int Student::uid()
+{
+    return m_uid;
+}
+
+QString Student::name() const
+{
+    return m_name;
+}
+
+QString Student::login() const
+{
+    return m_login;
+}
+
+QString Student::password() const
+{
+    return m_password;
+}
+
+bool Student::isCreator()
+{
+    return m_isCreator;
+}
+
+bool Student::isEnabled()
+{
+    return m_isEnabled;
+}
+
+bool Student::projectsPrivacyFlag()
+{
+    return m_projectsPrivacyFlag;
+}
+
+bool Student::filesPrivacyFlag()
+{
+    return m_filesPrivacyFlag;
+}
+
+bool Student::worksPrivacyFlag()
+{
+    return m_worksPrivacyFlag;
+}
+
+bool Student::operator==(const Student &student)
+{
+    return (m_login == student.m_login) && (m_password == student.m_password) && (m_name == student.m_name);
+}
+

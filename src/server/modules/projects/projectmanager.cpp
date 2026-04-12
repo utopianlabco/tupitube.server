@@ -46,7 +46,7 @@
 #include "server.h"
 #include "global.h"
 #include "project.h"
-#include "user.h"
+#include "../students/student.h"
 #include "projectactionparser.h"
 #include "newprojectparser.h"
 #include "openprojectparser.h"
@@ -88,21 +88,44 @@ void ProjectManager::createProject(Connection *connection)
         qDebug() << "[ProjectManager::createProject()]";
     #endif
    
-    int userID = connection->user()->uid(); 
+    int studentID = connection->student()->uid(); 
     QString projectName = m_connectionData.name();
 
-    QList<int> userList;
-    userList.insert(0, userID);
+    QList<int> studentList;
+    studentList.insert(0, studentID);
+
 
     NetProject *project = new NetProject;
-    project->setProjectParams(userID);
+    project->setProjectParams(studentID);
     project->setProjectName(projectName);
     project->setAuthor(m_connectionData.author());
     project->setDescription(m_connectionData.description());
     project->setCurrentBgColor(m_connectionData.bgColor());
     project->setDimension(m_connectionData.dimension());
     project->setFPS(m_connectionData.fps());
-    project->setUsers(userList);
+    project->setStudents(studentList);
+
+    // --- Auto-select valid Period for current date ---
+    QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
+    QDate currentDate = QDate::currentDate();
+    int selectedPeriodId = -1;
+    for (const DatabaseHandler::PeriodInfo &period : periods) {
+        QDate start = QDate::fromString(period.startDate, "yyyy-MM-dd");
+        QDate end = QDate::fromString(period.endDate, "yyyy-MM-dd");
+        if (start.isValid() && end.isValid() && currentDate >= start && currentDate <= end) {
+            selectedPeriodId = period.periodId;
+            break;
+        }
+    }
+    if (selectedPeriodId != -1) {
+        project->setProperty("period_id", selectedPeriodId);
+    } else {
+        // No valid period found for today, handle as needed (error, fallback, etc.)
+        connection->sendNotification(300, QObject::tr("No valid Period found for today's date. Cannot create project."), Notification::Error);
+        connection->close();
+        delete project;
+        return;
+    }
 
     bool dbSuccess = false;
     bool saved = project->save();
@@ -121,7 +144,7 @@ void ProjectManager::createProject(Connection *connection)
     if (dbSuccess) {
         QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                          connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
-        QString uid = QString::number(userID);
+        QString uid = QString::number(studentID);
         QString filename = project->filename();
         QString cacheDir = CACHE_DIR;
         if (cacheDir.endsWith("/"))
@@ -129,7 +152,7 @@ void ProjectManager::createProject(Connection *connection)
         project->setDataDir(cacheDir + "/" + uid + "/" + filename);
         registerProject(connection, uid, filename, project);
 
-        QString msg = QObject::tr("New project \"%1\" has been created by user %2").arg(projectName, connection->user()->login());
+        QString msg = QObject::tr("New project \"%1\" has been created by student %2").arg(projectName, connection->student()->login());
         Logger::self()->info(msg);
         emit projectEventLog(msg, "INFO");
 
@@ -151,14 +174,14 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
         qWarning() << "[ProjectManager::openProject()] - Opening project: " << filename;
     #endif
 
-    QString ownerID = m_dbHandler->userID(owner);
+    QString ownerID = m_dbHandler->studentID(owner);
     QString projectID = m_dbHandler->exists(filename, ownerID);
 
     if (projectID.compare("-1") != 0) {
-        if (!m_dbHandler->accessIsConfirmed(projectID, connection->user()->uid())) {
+        if (!m_dbHandler->accessIsConfirmed(projectID, connection->student()->uid())) {
             #ifdef TUP_DEBUG
                    qDebug() << "[ProjectManager::openProject()] - Fatal Error: Insufficient permissions to access project -> " << filename;
-                   qDebug() << "[ProjectManager::openProject()] - Request made by " << connection->user()->login();
+                   qDebug() << "[ProjectManager::openProject()] - Request made by " << connection->student()->login();
             #endif
             connection->sendNotification(360, QObject::tr("Insufficient Permissions"),
                                          Notification::Error);
@@ -175,9 +198,9 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
         QString projectTitle;
         {
             QSqlQuery query;
-            query.prepare("SELECT title FROM tupitube_project WHERE filename = :filename AND owner_id = :owner_id");
+            query.prepare("SELECT title FROM tupitube_project WHERE filename = :filename AND student_id = :student_id");
             query.bindValue(":filename", filename);
-            query.bindValue(":owner_id", ownerID);
+            query.bindValue(":student_id", ownerID);
             if (query.exec() && query.next()) {
                 projectTitle = query.value(0).toString();
             } else {
@@ -202,8 +225,8 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             project->setOwner(ownerID.toInt());
             project->setFilename(filename);
 
-            QString msg = QObject::tr("User %1 from %2 opened project: %3")
-                .arg(connection->user()->login(), connection->ip(), projectTitle);
+            QString msg = QObject::tr("Student %1 from %2 opened project: %3")
+                .arg(connection->student()->login(), connection->ip(), projectTitle);
             Logger::self()->info(msg);
             emit projectEventLog(msg, "INFO");
         } else {
@@ -217,8 +240,8 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                              connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
 
-            QString msg = QObject::tr("User %1 from %2 opened project: %3")
-                .arg(connection->user()->login(), connection->ip(), projectTitle);
+            QString msg = QObject::tr("Student %1 from %2 opened project: %3")
+                .arg(connection->student()->login(), connection->ip(), projectTitle);
             Logger::self()->info(msg);
             emit projectEventLog(msg, "INFO");
         }
@@ -242,14 +265,14 @@ void ProjectManager::importProject(Connection *connection, const QString &path, 
     #endif
 
     if (data.size() > 0) {
-        int userID = connection->user()->uid();
-        QString uid = QString::number(userID);
+        int studentID = connection->student()->uid();
+        QString uid = QString::number(studentID);
 
         NetProject *project = new NetProject;
-        project->setProjectParams(userID);
+        project->setProjectParams(studentID);
         QString filename = project->filename();
 
-        QString absolutePath = kAppProp->repositoryDir() + "users/" + uid + "/projects/" + filename + ".tup";
+        QString absolutePath = kAppProp->repositoryDir() + "students/" + uid + "/projects/" + filename + ".tup";
         QFile file(absolutePath);
         if (file.open(QIODevice::WriteOnly)) {
             file.write(data);
@@ -281,8 +304,8 @@ void ProjectManager::importProject(Connection *connection, const QString &path, 
 
             QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                              connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
-            Logger::self()->info(QObject::tr("Project \"%1\" has been imported by user %2").arg(project->getName(),
-                                       connection->user()->login()));
+            Logger::self()->info(QObject::tr("Project \"%1\" has been imported by student %2").arg(project->getName(),
+                                       connection->student()->login()));
 
             registerProject(connection, uid, filename, project);
         } else {
@@ -318,26 +341,26 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     connection->setData(Info::ProjectIsOpen, true);
     m_openedProjects.insert(filename, project);
 
-    QString absolutePath = kAppProp->repositoryDir() + "users/" + uid + "/projects/" + filename + ".tup";
+    QString absolutePath = kAppProp->repositoryDir() + "students/" + uid + "/projects/" + filename + ".tup";
 
     // Get project ID from database
     QString projectId = m_dbHandler->exists(filename, uid);
     
-    // Build loginList from ALL project collaborators in database (not just connected users)
-    QStringList userList;
+    // Build loginList from ALL project collaborators in database (not just connected students)
+    QStringList studentList;
     
     // Add project owner
-    QString ownerUsername = m_dbHandler->getOwnerUsername(projectId.toInt());
-    userList << ownerUsername;
+    QString ownerStudentname = m_dbHandler->getOwnerStudentname(projectId.toInt());
+    studentList << ownerStudentname;
     
     // Add all collaborators from database
     QList<DatabaseHandler::CollaboratorInfo> collaborators = m_dbHandler->getProjectCollaborators(projectId.toInt());
     for (const DatabaseHandler::CollaboratorInfo &collab : collaborators) {
-        if (!userList.contains(collab.username))
-            userList << collab.username;
+        if (!studentList.contains(collab.studentname))
+            studentList << collab.studentname;
     }
     
-    QString loginList = userList.join(",");
+    QString loginList = studentList.join(",");
 
     #ifdef TUP_DEBUG
         qWarning() << "[ProjectManager::registerProject()] - Login list: " << loginList;
@@ -346,17 +369,17 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     Project projectPackage(loginList, absolutePath);
     connection->sendStringToClient(projectPackage.toString());
 
-    // Send notice to connected partners that new user joined
+    // Send notice to connected partners that new student joined
     QList<Connection *> partners = m_connectionList[filename];
     int size = partners.size();
-    Notice msg(connection->user()->login(), 1);
+    Notice msg(connection->student()->login(), 1);
 
     for (int i = 0; i < size; ++i)
          partners.at(i)->sendStringToClient(msg.toString());
 
-    // Send notices to the new user about already-connected partners
+    // Send notices to the new student about already-connected partners
     for (int i = 0; i < size; ++i) {
-        Notice onlineMsg(partners.at(i)->user()->login(), 1);
+        Notice onlineMsg(partners.at(i)->student()->login(), 1);
         connection->sendStringToClient(onlineMsg.toString());
     }
 
@@ -379,11 +402,11 @@ void ProjectManager::createImage(Connection *connection, int frame, int scene, c
     /*
     QString projectID = connection->data(Info::ProjectID).toString();
     NetProject *project = m_openedProjects.value(projectID);
-    QString uid = QString::number(connection->user()->uid());
+    QString uid = QString::number(connection->student()->uid());
     QString code = project->fileCode();
     QSize dimension = project->getDimension();
 
-    QString path = kAppProp->repositoryDir() + "users/" + uid + "/images/" + code + ".png";
+    QString path = kAppProp->repositoryDir() + "students/" + uid + "/images/" + code + ".png";
     GenericExportPlugin exporter;
     bool imageOk = exporter.exportFrame(frame, project->getBgColor(), path, project->sceneAt(scene), dimension);
 
@@ -412,7 +435,7 @@ void ProjectManager::createImage(Connection *connection, int frame, int scene, c
                 }
             }
 
-           QString thumb = kAppProp->repositoryDir() + "users/" + uid + "/images/thumbnails/" + code + ".png";
+           QString thumb = kAppProp->repositoryDir() + "students/" + uid + "/images/thumbnails/" + code + ".png";
            newpix.save(thumb);
         } else {
            #ifdef TUP_DEBUG
@@ -430,8 +453,8 @@ void ProjectManager::createImage(Connection *connection, int frame, int scene, c
             return;
         }
 
-        QString login = connection->user()->login();
-        Logger::self()->info(QObject::tr("Image %2.png has been exported by user \"%1\"").arg(login, code));
+        QString login = connection->student()->login();
+        Logger::self()->info(QObject::tr("Image %2.png has been exported by student \"%1\"").arg(login, code));
         connection->sendNotification(100, QObject::tr("Image \"%1\" posted successfully").arg(title), Notification::Info);
     } else {
         #ifdef TUP_DEBUG
@@ -457,7 +480,7 @@ void ProjectManager::createVideo(Connection *connection, const QString &title, c
 
     /*
     QString projectID = connection->data(Info::ProjectID).toString();
-    QString uid = QString::number(connection->user()->uid());
+    QString uid = QString::number(connection->student()->uid());
     NetProject *project = m_openedProjects.value(projectID);
 
     if (project) {
@@ -490,7 +513,7 @@ void ProjectManager::createVideo(Connection *connection, const QString &title, c
             }
 
             if (sceneList.count() > 0) {
-                QString base = kAppProp->repositoryDir() + "users/" + uid + "/animations/" + code;
+                QString base = kAppProp->repositoryDir() + "students/" + uid + "/animations/" + code;
 
                 QString fileName = base + ".mp4";
 		isOk = m_exporter->exportToFormat(project->getBgColor(), fileName, sceneList, TupExportInterface::MP4, dimension, dimension, fps);
@@ -514,7 +537,7 @@ void ProjectManager::createVideo(Connection *connection, const QString &title, c
                 return;
             }
 
-            QString fileName = kAppProp->repositoryDir() + "users/" + uid + "/animations/thumbnails/" + code + ".png";
+            QString fileName = kAppProp->repositoryDir() + "students/" + uid + "/animations/thumbnails/" + code + ".png";
             GenericExportPlugin exporter;
         
             bool imageOk = exporter.exportFrame(thumbFrame, project->getBgColor(), fileName, project->sceneAt(thumbScene), dimension);
@@ -545,8 +568,8 @@ void ProjectManager::createVideo(Connection *connection, const QString &title, c
                 return;
             }
 
-            QString login = connection->user()->login();
-            Logger::self()->info(QObject::tr("Video %2.webm has been exported by user \"%1\"").arg(login, code));
+            QString login = connection->student()->login();
+            Logger::self()->info(QObject::tr("Video %2.webm has been exported by student \"%1\"").arg(login, code));
             connection->sendNotification(101, QObject::tr("Video \"%1\" posted successfully").arg(title), Notification::Info);
         } else {
             #ifdef TUP_DEBUG
@@ -574,8 +597,8 @@ void ProjectManager::createStoryboard(Connection *connection, int sceneIndex)
 
     /*
     QString projectID = connection->data(Info::ProjectID).toString();
-    QString uid = QString::number(connection->user()->uid());
-    QString login = connection->user()->login();
+    QString uid = QString::number(connection->student()->uid());
+    QString login = connection->student()->login();
 
     NetProject *project = m_openedProjects.value(projectID);
 
@@ -609,7 +632,7 @@ void ProjectManager::createStoryboard(Connection *connection, int sceneIndex)
 
         QString storyID = m_dbHandler->storyboardID(uid, directory);
 
-        QString absolutePath = kAppProp->repositoryDir() + "users/" + uid + "/storyboards/" + directory;
+        QString absolutePath = kAppProp->repositoryDir() + "students/" + uid + "/storyboards/" + directory;
         QDir repository(absolutePath);
         bool ok = repository.mkdir(absolutePath);
 
@@ -665,7 +688,7 @@ void ProjectManager::createStoryboard(Connection *connection, int sceneIndex)
                          else
                              newpix = QPixmap(pixmap->scaledToHeight(200, Qt::SmoothTransformation));
 
-                         QString thumb = kAppProp->repositoryDir() + "users/" + uid + "/storyboards/thumbnails/" + directory + ".png";
+                         QString thumb = kAppProp->repositoryDir() + "students/" + uid + "/storyboards/thumbnails/" + directory + ".png";
                          newpix.save(thumb);
                       } else {
                          #ifdef TUP_DEBUG
@@ -704,7 +727,7 @@ void ProjectManager::createStoryboard(Connection *connection, int sceneIndex)
              }
         }
 
-        Logger::self()->info(QObject::tr("Storyboard \"%1\" has been exported by user \"%2\"").arg(title, login));
+        Logger::self()->info(QObject::tr("Storyboard \"%1\" has been exported by student \"%2\"").arg(title, login));
         connection->sendNotification(102, QObject::tr("Storyboard \"%1\" posted successfully").arg(title), Notification::Info);
 
     } else {
@@ -732,7 +755,7 @@ void ProjectManager::updateStoryboard(Connection *connection, int sceneIndex, co
     NetProject *project = m_openedProjects.value(projectID);
 
     if (project) {
-        TupStoryboard *storyboard = new TupStoryboard(connection->user()->login());
+        TupStoryboard *storyboard = new TupStoryboard(connection->student()->login());
         storyboard->fromXml(storyXml);
 
         project->sceneAt(sceneIndex)->setStoryboard(storyboard); 
@@ -755,9 +778,9 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
 
     if (root == "project_request") {
         #ifdef TUP_DEBUG
-            qWarning() << "[ProjectManager::handlePackage()] - project_request from:" << connection->user()->login();
+            qWarning() << "[ProjectManager::handlePackage()] - project_request from:" << connection->student()->login();
         #endif
-        if (connection->user()->isEnabled()) {
+        if (connection->student()->isEnabled()) {
             if (!connection->data(Info::ProjectID).toString().isNull()) {
                 QString projectID = connection->data(Info::ProjectID).toString();
                 #ifdef TUP_DEBUG
@@ -782,13 +805,13 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
 
         } else {
             #ifdef TUP_DEBUG
-                qWarning() << "[ProjectManager::handlePackage()] - User NOT enabled:" << connection->user()->login();
+                qWarning() << "[ProjectManager::handlePackage()] - Student NOT enabled:" << connection->student()->login();
             #endif
             connection->sendNotification(360, QObject::tr("Insufficient permissions"), 
                                          Notification::Warning);
         }
     } else if (root == "project_open") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    OpenProjectParser parser;
                    if (parser.parse(package)) {
                        openProject(parser.projectID(), parser.owner(), connection);
@@ -798,7 +821,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                                                 Notification::Warning);
                }
     } else if (root == "project_new") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    if (m_connectionData.parse(package)) {
                        createProject(connection);
                    } else {
@@ -811,7 +834,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    #endif
                }
     } else if (root == "project_import") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    ImportProjectParser parser;
                    if (parser.parse(package))
                        importProject(connection, parser.path(), parser.data());
@@ -822,10 +845,10 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                }
     } else if (root == "project_list") {
                connection->setData(Info::ProjectIsOpen, false);
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    ListProjectsParser parser;
                    if (parser.parse(package)) {
-                       listUserProjects(connection);
+                       listStudentProjects(connection);
                    } else {
                        #ifdef TUP_DEBUG
                               qDebug() << "[ProjectManager::handlePackage()] - Fatal Error: Can't parse project_list package";
@@ -835,7 +858,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    connection->sendNotification(360, QObject::tr("Insufficient permissions"), Notification::Warning);
                }
     } else if (root == "project_save") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    SaveProjectParser parser;
                    if (parser.parse(package)) {
                        QString projectID = connection->data(Info::ProjectID).toString();
@@ -856,7 +879,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    connection->sendNotification(360, QObject::tr("Insufficient permissions"), Notification::Error);
                }
     } else if (root == "project_image") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    ProjectImageParser parser;
                    if (parser.parse(package)) {
                        createImage(connection, parser.frame(), parser.scene(), parser.title(), parser.topics(), parser.description());
@@ -869,7 +892,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    connection->sendNotification(360, QObject::tr("Insufficient permissions"), Notification::Warning);
                }
     } else if (root == "project_video") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    ProjectVideoParser parser;
                    if (parser.parse(package)) {
                        createVideo(connection, parser.title(), parser.topics(), parser.description(), parser.fps(), parser.scenes());
@@ -882,7 +905,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    connection->sendNotification(360, QObject::tr("Insufficient permissions"), Notification::Warning);
                }
     } else if (root == "project_storyboard") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    qDebug() << "[ProjectManager::handlePackage()] - Exporting storyboard as work!";
                    ProjectStoryboardPostParser parser;
                    if (parser.parse(package)) {
@@ -896,7 +919,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    connection->sendNotification(360, QObject::tr("Insufficient permissions"), Notification::Warning);
                }
     } else if (root == "project_storyboard_update") {
-               if (connection->user()->isEnabled()) {
+               if (connection->student()->isEnabled()) {
                    qDebug() << "[ProjectManager::handlePackage()] - Updating storyboard data in the project!";
                    ProjectStoryboardParser parser(package);
 
@@ -982,7 +1005,7 @@ void ProjectManager::closeConnection(Connection *connection)
     if (connection->data(Info::ProjectIsOpen).toBool()) {
         m_connectionList[projectID].removeAll(connection);
 
-        QString login = connection->user()->login();
+        QString login = connection->student()->login();
         
         if (m_connectionList[projectID].isEmpty()) {
             closeProject(projectID);
@@ -995,7 +1018,7 @@ void ProjectManager::closeConnection(Connection *connection)
         }
 
         #ifdef TUP_DEBUG
-            qWarning() << "[ProjectManager::closeConnection()] - User " << login << " has logged off";
+            qWarning() << "[ProjectManager::closeConnection()] - Student " << login << " has logged off";
         #endif
     }
 }
@@ -1040,13 +1063,13 @@ bool ProjectManager::handleProjectRequest(const QString &projectID, const QStrin
     return false;
 }
 
-void ProjectManager::listUserProjects(Connection *connection)
+void ProjectManager::listStudentProjects(Connection *connection)
 {
     ProjectList list;
-    int uid = connection->user()->uid();
-    QString login = connection->user()->login();
+    int uid = connection->student()->uid();
+    QString login = connection->student()->login();
 
-    foreach (DatabaseHandler::ProjectInfo info, m_dbHandler->userProjects(uid, login))
+    foreach (DatabaseHandler::ProjectInfo info, m_dbHandler->studentProjects(uid, login))
              list.addProject(ProjectList::Work, info.file, info.title, info.owner, info.description, info.date);
 
     foreach (DatabaseHandler::ProjectInfo info, m_dbHandler->partnerProjects(uid))
@@ -1067,23 +1090,23 @@ void ProjectManager::sendToProjectMembers(Connection *connection, QDomDocument &
 
     #ifdef TUP_DEBUG
         qWarning() << "[ProjectManager::sendToProjectMembers()] - ProjectID:" << projectID;
-        qWarning() << "[ProjectManager::sendToProjectMembers()] - Sender UID:" << connection->user()->uid() << "Login:" << connection->user()->login();
+        qWarning() << "[ProjectManager::sendToProjectMembers()] - Sender UID:" << connection->student()->uid() << "Login:" << connection->student()->login();
         qWarning() << "[ProjectManager::sendToProjectMembers()] - Total connections for project:" << m_connectionList[projectID].size();
     #endif
  
     foreach (Connection *link, m_connectionList[projectID]) {
         #ifdef TUP_DEBUG
-            qWarning() << "[ProjectManager::sendToProjectMembers()] - Checking link UID:" << link->user()->uid() << "Login:" << link->user()->login();
+            qWarning() << "[ProjectManager::sendToProjectMembers()] - Checking link UID:" << link->student()->uid() << "Login:" << link->student()->login();
         #endif
-        if (link->user()->uid() != connection->user()->uid()) {
-            if (link->user()->isEnabled()) {
+        if (link->student()->uid() != connection->student()->uid()) {
+            if (link->student()->isEnabled()) {
                 #ifdef TUP_DEBUG
-                    qWarning() << "[ProjectManager::sendToProjectMembers()] - Sending to:" << link->user()->login();
+                    qWarning() << "[ProjectManager::sendToProjectMembers()] - Sending to:" << link->student()->login();
                 #endif
                 link->sendStringToClient(doc.toString(0));
             } else {
                 #ifdef TUP_DEBUG
-                    qWarning() << "[ProjectManager::sendToProjectMembers()] - User NOT enabled:" << link->user()->login();
+                    qWarning() << "[ProjectManager::sendToProjectMembers()] - Student NOT enabled:" << link->student()->login();
                 #endif
             }
         }
@@ -1181,19 +1204,19 @@ void ProjectManager::postWork()
         qDebug() << "ProjectManager::postWork() - Registering video work in the social network...";
 
         // action (a)
-        // username (u)
+        // studentname (u)
         // filename (i)
         // type == "video" (p)
         // title (t)
         // topics (h)
         // description (d)
-        // url: /?a=post&t=title&u=username&p=video&i=filename&h=topics&d=description
+        // url: /?a=post&t=title&u=studentname&p=video&i=filename&h=topics&d=description
 
         QUrl serviceUrl = QUrl("http://dev.tupitube.co/api/index.php");
         QByteArray postData;
         postData.append("a=post&");
         postData.append("t=" + m_videoTitle + "&");
-        postData.append("u=" + m_videoUsername + "&");
+        postData.append("u=" + m_videoStudentname + "&");
         postData.append("p=video&");
         postData.append("i=" + m_videoFilename + "&");
         postData.append("h=" + m_videoTopics + "&");
@@ -1206,7 +1229,7 @@ void ProjectManager::postWork()
         connect(networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(postFinished(QNetworkReply*)));
 
         QNetworkRequest request(serviceUrl);
-        request.setRawHeader("User-Agent", BROWSER_FINGERPRINT.toLatin1());
+        request.setRawHeader("Student-Agent", BROWSER_FINGERPRINT.toLatin1());
 
         // request.setSslConfiguration(QSslConfiguration::defaultConfiguration());
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");

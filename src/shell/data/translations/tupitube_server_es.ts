@@ -47,7 +47,7 @@
         <translation>&amp;Estado</translation>
     </message>
     <message>
-        <source>&amp;Users</source>
+        <source>&amp;Students</source>
         <translation>&amp;Usuarios</translation>
     </message>
     <message>
@@ -79,7 +79,7 @@
         <translation>Estado</translation>
     </message>
     <message>
-        <source>Users</source>
+        <source>Students</source>
         <translation>Usuarios</translation>
     </message>
     <message>
@@ -127,7 +127,7 @@
         <translation>Tiempo Activo:</translation>
     </message>
     <message>
-        <source>Username</source>
+        <source>Studentname</source>
         <translation>Usuario</translation>
     </message>
     <message>
@@ -275,11 +275,11 @@ Por favor verifique si el puerto ya está en uso.</translation>
         <translation>Conectado</translation>
     </message>
     <message>
-        <source>User connected: %1 from %2</source>
+        <source>Student connected: %1 from %2</source>
         <translation>Usuario conectado: %1 desde %2</translation>
     </message>
     <message>
-        <source>User disconnected: %1</source>
+        <source>Student disconnected: %1</source>
         <translation>Usuario desconectado: %1</translation>
     </message>
     <message>

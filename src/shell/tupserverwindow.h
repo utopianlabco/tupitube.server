@@ -71,19 +71,19 @@ private slots:
     void onServerStarted();
     void onServerStopped();
     void onConnectionCountChanged(int count);
-    void onUserConnected(const QString &username, const QString &ip);
-    void onUserDisconnected(const QString &username);
+    void onStudentConnected(const QString &studentName, const QString &ip);
+    void onStudentDisconnected(const QString &studentName);
     void onLogMessage(const QString &message, const QString &level);
     void saveSettings();
     void trayIconActivated(QSystemTrayIcon::ActivationReason reason);
     void clearLogs();
-     void saveConfigSettings(); // Added method declaration
+    void saveConfigSettings(); // Added method declaration
 
-    // User management slots
-    void refreshUsersList();
-    void addUser();
-    void editUser();
-    void removeUser();
+    // Student management slots
+    void refreshStudentsList(const QString &filter = QString());
+    void addStudent();
+    void editStudent();
+    void removeStudent();
     void importUsersFromCsv();
 
     // Project collaboration slots
@@ -95,12 +95,23 @@ private slots:
     void viewProjectChat();
     void sendBroadcastMessage();
 
+    // Classes tab slots
+    void refreshClassesList();
+    void refreshPeriodsList();
+    void onAddClass();
+    void onEditClass();
+    void onRemoveClass();
+    void onAddPeriod();
+    void onEditPeriod();
+    void onRemovePeriod();
+
 private:
+    void setupClassesTab();
     void setupUI();
     void setupMenuBar();
     void setupTabs();
     void setupStatusTab();
-    void setupUsersTab();
+    void setupStudentsTab();
     void setupProjectsTab();
     void setupLogsTab();
     void setupSettingsTab();
@@ -118,10 +129,21 @@ private:
     // Tabs
     QTabWidget *m_tabWidget;
     QWidget *m_statusTab;
-    QWidget *m_usersTab;
+    QWidget *m_studentsTab;
     QWidget *m_projectsTab;
     QWidget *m_logsTab;
+    QWidget *m_classesTab;
     QWidget *m_settingsTab;
+    // Classes tab widgets
+    QTableWidget *m_classesTable;
+    QTableWidget *m_periodsTable;
+    QPushButton *m_addClassButton;
+    QPushButton *m_editClassButton;
+    QPushButton *m_removeClassButton;
+    QPushButton *m_addPeriodButton;
+    QPushButton *m_editPeriodButton;
+    QPushButton *m_removePeriodButton;
+    QPushButton *m_refreshClassesButton;
 
     // Status tab widgets
     QPushButton *m_toggleButton;
@@ -132,14 +154,15 @@ private:
     QLabel *m_connectionCountLabel;
     QLabel *m_uptimeLabel;
 
-    // Users tab widgets
-    QTableWidget *m_connectedUsersTable;
-    QTableWidget *m_registeredUsersTable;
-    QPushButton *m_addUserButton;
-    QPushButton *m_editUserButton;
-    QPushButton *m_removeUserButton;
-    QPushButton *m_refreshUsersButton;
+    // Students tab widgets
+    QTableWidget *m_connectedStudentsTable;
+    QTableWidget *m_registeredStudentsTable;
+    QPushButton *m_addStudentButton;
+    QPushButton *m_editStudentButton;
+    QPushButton *m_removeStudentButton;
+    QPushButton *m_refreshStudentsButton;
     QPushButton *m_importCsvButton;
+    QLineEdit *m_studentFilterEdit; // Filter for Registered Students
     DatabaseHandler *m_dbHandler;
 
     // Projects tab widgets

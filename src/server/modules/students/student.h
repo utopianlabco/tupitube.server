@@ -31,111 +31,53 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
-#include "user.h"
+ #ifndef STUDENT_H
+ #define STUDENT_H
 
+#include <QString>
 #include <QList>
-#include <QDomDocument>
 
-User::User()
+class QDomDocument;
+class QDomElement;
+
+class Student
 {
-}
+    public:
+        explicit Student();
+        ~Student();
 
-User::~User()
-{
-}
+        void setUID(int uid);        
+        void setName(const QString &name);
+        void setLogin(const QString &login);
+        void setPassword(const QString &password);
+        void setEnabledFlag(bool flag);
+        void setCreatorFlag(bool flag);
+        void setProjectsPrivacyFlag(bool flag);
+        void setFilesPrivacyFlag(bool flag);
+        void setWorksPrivacyFlag(bool flag);
+       
+        int uid(); 
+        QString name() const;
+        QString login() const;
+        QString password() const;
+        bool isCreator();
+        bool isEnabled();
+        bool projectsPrivacyFlag();
+        bool filesPrivacyFlag();
+        bool worksPrivacyFlag();
+        
+        bool operator==(const Student& student);
+        
+    private:
+        int m_uid;
+        QString m_name;
+        QString m_login;
+        QString m_password;
+        bool m_isEnabled;
+        bool m_isCreator;
+        bool m_projectsPrivacyFlag;
+        bool m_filesPrivacyFlag;
+        bool m_worksPrivacyFlag;
+};
 
-void User::setUID(int uid)
-{
-    m_uid = uid;
-}
-
-void User::setName(const QString &name)
-{
-    m_name = name;
-}
-
-void User::setLogin(const QString &login)
-{
-    m_login = login;
-}
-
-void User::setPassword(const QString &password)
-{
-    m_password = password;
-}
-
-void User::setEnabledFlag(bool flag)
-{
-    m_isEnabled = flag;
-}
-
-void User::setCreatorFlag(bool flag)
-{
-    m_isCreator = flag;
-}
-
-void User::setProjectsPrivacyFlag(bool flag)
-{
-    m_projectsPrivacyFlag = flag;
-}
-
-void User::setFilesPrivacyFlag(bool flag)
-{
-    m_filesPrivacyFlag = flag;
-}
-
-void User::setWorksPrivacyFlag(bool flag)
-{
-    m_worksPrivacyFlag = flag;
-}
-
-int User::uid()
-{
-    return m_uid;
-}
-
-QString User::name() const
-{
-    return m_name;
-}
-
-QString User::login() const
-{
-    return m_login;
-}
-
-QString User::password() const
-{
-    return m_password;
-}
-
-bool User::isCreator()
-{
-    return m_isCreator;
-}
-
-bool User::isEnabled()
-{
-    return m_isEnabled;
-}
-
-bool User::projectsPrivacyFlag()
-{
-    return m_projectsPrivacyFlag;
-}
-
-bool User::filesPrivacyFlag()
-{
-    return m_filesPrivacyFlag;
-}
-
-bool User::worksPrivacyFlag()
-{
-    return m_worksPrivacyFlag;
-}
-
-bool User::operator==(const User &user)
-{
-    return (m_login == user.m_login) && (m_password == user.m_password) && (m_name == user.m_name);
-}
-
+#endif

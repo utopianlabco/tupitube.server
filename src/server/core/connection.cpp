@@ -41,13 +41,13 @@
 #include "tupprojectrequest.h"
 #include "tupprojectresponse.h"
 #include "tuprequestparser.h"
-#include "user.h"
+#include "../modules/students/student.h"
 
 #include <QtNetwork>
 #include <QCryptographicHash>
 #include <QDebug>
 
-Connection::Connection(qintptr socketDescriptor, TcpServer *server) : QThread(server), m_server(server), m_user(nullptr)
+Connection::Connection(qintptr socketDescriptor, TcpServer *server) : QThread(server), m_server(server), m_student(nullptr)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[Connection::Connection()]";
@@ -71,7 +71,7 @@ Connection::Connection(qintptr socketDescriptor, TcpServer *server) : QThread(se
 Connection::~Connection()
 {
     delete m_client;
-    delete m_user;
+    delete m_student;
 }
 
 void Connection::run()
@@ -80,7 +80,7 @@ void Connection::run()
        if (m_readed.isEmpty())
            continue;
 
-       if (!m_user)
+       if (!m_student)
            setAuthenticationFlag(false);
 
        if (!m_readed.isEmpty()) {
@@ -138,8 +138,8 @@ void Connection::removeConnection()
 
 void Connection::close()
 {
-    if (m_user && isAuthenticated())
-        Logger::self()->info(QObject::tr("User \"%1\" has logged off [%2]").arg(m_user->login(), m_ip)); 
+    if (m_student && isAuthenticated())
+        Logger::self()->info(QObject::tr("Student \"%1\" has logged off [%2]").arg(m_student->login(), m_ip)); 
 
     setAuthenticationFlag(false);
     
@@ -231,30 +231,30 @@ QString Connection::sign() const
     return m_sign;
 }
 
-void Connection::setUser(User *user)
+void Connection::setStudent(Student *student)
 {
     #ifdef TUP_DEBUG
-       qDebug() << "[Connection::setUser()]";
+       qDebug() << "[Connection::setStudent()]";
     #endif
 
-    m_user = user;
+    m_student = student;
     generateSign();
     
     setAuthenticationFlag(true);
 }
 
-User *Connection::user() const
+Student *Connection::student() const
 {
-    return m_user;
+    return m_student;
 }
 
 void Connection::generateSign()
 {
-    if (m_user) {
-        QString input = m_user->login() + m_user->password() + TAlgorithm::randomString(TAlgorithm::random() % 10);
+    if (m_student) {
+        QString input = m_student->login() + m_student->password() + TAlgorithm::randomString(TAlgorithm::random() % 10);
         QByteArray hash = QCryptographicHash::hash(input.toUtf8(), QCryptographicHash::Md5);     
         m_sign = hash.toHex();
-        // m_sign = TMD5Hash::hash(m_user->login() + m_user->password() + TAlgorithm::randomString(TAlgorithm::random() % 10));
+        // m_sign = TMD5Hash::hash(m_student->login() + m_student->password() + TAlgorithm::randomString(TAlgorithm::random() % 10));
     }
 }
 

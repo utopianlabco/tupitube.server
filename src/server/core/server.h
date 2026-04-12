@@ -34,9 +34,9 @@
 #ifndef _SERVER_H__
 #define _SERVER_H__
 
-#include "user.h"
+#include "../modules/students/student.h"
 #include "observer.h"
-#include "usermanager.h"
+#include "../modules/students/studentmanager.h"
 
 #include <QStringList>
 #include <QTcpServer>
@@ -61,7 +61,7 @@ class TcpServer : public QTcpServer
         void sendToAdmins(const QString &str);
         
         void addAdmin(Connection *connection);
-        UserManager *userManager() const;
+        StudentManager *studentManager() const;
         
         void addObserver(Observer *observer);
         bool removeObserver(Observer *observer);
@@ -70,8 +70,8 @@ class TcpServer : public QTcpServer
 
     signals:
         void connectionCountChanged(int count);
-        void userConnected(const QString &username, const QString &ip);
-        void userDisconnected(const QString &username);
+        void studentConnected(const QString &studentname, const QString &ip);
+        void studentDisconnected(const QString &studentname);
         void logMessage(const QString &message, const QString &level);
         
     private slots:
@@ -85,8 +85,8 @@ class TcpServer : public QTcpServer
         void handle(Connection *connection);
 
         // bool verifyPassword(const QString &login, const QString &password);
-        // bool userExists(const QString &login);
-        // User *userData(const QString &login);
+        // bool studentExists(const QString &login);
+        // Student *studentData(const QString &login);
         
     protected:
         void incomingConnection(qintptr socketDescriptor);
@@ -94,7 +94,7 @@ class TcpServer : public QTcpServer
     private:
         QList<Connection *> m_connections;
         QList<Connection *> m_managers;
-        UserManager *m_userManager;
+        StudentManager *m_studentManager;
         ProjectManager *m_projectManager;
         CommunicationManager *m_communicationManager;
         QList<Observer *> m_observers;

@@ -62,7 +62,7 @@ bool ConnectParser::parse()
         if (isStartElement()) {
             QString tag = QXmlStreamReader::name().toString();
             if (tag == "username") {
-                m_username = readElementText().simplified();
+                m_studentname = readElementText().simplified();
             } else if (tag == "password") {
                 QString text = readElementText().simplified();
                 if (!m_flag1) {
@@ -98,9 +98,9 @@ bool ConnectParser::parse(const QString &xml)
     return parse();
 }
 
-QString ConnectParser::username() const
+QString ConnectParser::studentname() const
 {
-    return m_username;
+    return m_studentname;
 }
 
 QString ConnectParser::password() const
@@ -113,8 +113,8 @@ QString ConnectParser::password() const
 
     // Handle multi-password obfuscation mode (for tupitu.be)
     if ((m_password1.length() > 0) && (m_password2.length() > 0) && (m_password3.length() > 0)) {
-         // QByteArray array = m_username.toAscii();
-         QByteArray array = m_username.toUtf8(); 
+         // QByteArray array = m_studentname.toAscii();
+         QByteArray array = m_studentname.toUtf8(); 
          char letter = array.at(0);
          int ascii = static_cast<int>(letter);
          int mod = ascii%3;

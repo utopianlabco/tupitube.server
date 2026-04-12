@@ -5,4 +5,4 @@ exists ($$PRI_FILE) {
     error("[modules] Please, run configure first")
 }
 
-INCLUDEPATH += ../ ../../base ../../core ../../parsers ../ban ../users ../../packages ../../../lib ../backups
+INCLUDEPATH += ../ ../../base ../../core ../../parsers ../ban ../students ../../packages ../../../lib ../backups

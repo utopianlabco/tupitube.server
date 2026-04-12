@@ -31,9 +31,9 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
-#include "usermanager.h"
+#include "studentmanager.h"
 
-#include "user.h"
+#include "student.h"
 #include "packagebase.h"
 #include "settings.h"
 #include "logger.h"
@@ -48,19 +48,19 @@
 #include <QDomDocument>
 #include <QDebug>
 
-UserManager::UserManager(QObject *parent) : Observer()
+StudentManager::StudentManager(QObject *parent) : Observer()
 {
     Q_UNUSED(parent)
-    m_user = new User();
+    m_student = new Student();
 }
 
-UserManager::~UserManager()
+StudentManager::~StudentManager()
 {
 }
 
-bool UserManager::userExists(const QString &username)
+bool StudentManager::studentExists(const QString &studentname)
 {
-    QString sql = "SELECT count(*) FROM tupitube_user WHERE username='" + username + "'";
+    QString sql = "SELECT count(*) FROM tupitube_student WHERE studentname='" + studentname + "'";
     QSqlQuery query(sql);
     QString one = "0";
 
@@ -70,7 +70,7 @@ bool UserManager::userExists(const QString &username)
     query.clear();
 
     #ifdef TUP_DEBUG
-           qDebug() << "[UserManager::userExists()] - SQL: " << sql;
+           qDebug() << "[StudentManager::studentExists()] - SQL: " << sql;
     #endif
 
     if (one.compare("1") == 0)
@@ -79,13 +79,13 @@ bool UserManager::userExists(const QString &username)
     return false;
 }
 
-bool UserManager::verifyPassword(const QString &username, const QString &passwd)
+bool StudentManager::verifyPassword(const QString &studentname, const QString &passwd)
 {
-    QString sql = "SELECT user_id, name, password, is_enabled, is_creator, projects_public_policy, files_public_policy, works_public_policy FROM tupitube_user WHERE username='" + username + "'";
+    QString sql = "SELECT student_id, name, password, is_enabled, is_creator, projects_public_policy, files_public_policy, works_public_policy FROM tupitube_student WHERE studentname='" + studentname + "'";
     QSqlQuery query(sql);
 
     #ifdef TUP_DEBUG
-           qDebug() << "[UserManager::verifyPassword()] - SQL: " << sql;
+           qDebug() << "[StudentManager::verifyPassword()] - SQL: " << sql;
     #endif 
 
     if (query.first()) {
@@ -101,7 +101,7 @@ bool UserManager::verifyPassword(const QString &username, const QString &passwd)
         if (password.length() > 0) {
             QString cleanPass = passwd.mid(4);
             if (cleanPass.compare(password) == 0) {
-                m_user = userData(uid, name, username, password, isEnabled, isCreator, projectsPrivacy, filesPrivacy, worksPrivacy);
+                m_student = studentData(uid, name, studentname, password, isEnabled, isCreator, projectsPrivacy, filesPrivacy, worksPrivacy);
                 return true;
             }
         }
@@ -112,29 +112,29 @@ bool UserManager::verifyPassword(const QString &username, const QString &passwd)
     return false;
 }
 
-User *UserManager::userData(int uid, const QString &name, const QString &username,
+Student *StudentManager::studentData(int uid, const QString &name, const QString &studentname,
                             const QString &password, bool isEnabled, bool isCreator,
                             bool projectsPrivacy, bool filesPrivacy, bool worksPrivacy)
 {
-    User *user = new User();
-    user->setUID(uid);
-    user->setName(name);
-    user->setLogin(username);
-    user->setPassword(password);
+    Student *student = new Student();
+    student->setUID(uid);
+    student->setName(name);
+    student->setLogin(studentname);
+    student->setPassword(password);
 
-    user->setEnabledFlag(isEnabled);
-    user->setCreatorFlag(isCreator);
-    user->setProjectsPrivacyFlag(projectsPrivacy);
-    user->setFilesPrivacyFlag(filesPrivacy);
-    user->setWorksPrivacyFlag(worksPrivacy);
+    student->setEnabledFlag(isEnabled);
+    student->setCreatorFlag(isCreator);
+    student->setProjectsPrivacyFlag(projectsPrivacy);
+    student->setFilesPrivacyFlag(filesPrivacy);
+    student->setWorksPrivacyFlag(worksPrivacy);
 
-    return user;
+    return student;
 }
 
-void UserManager::handlePackage(PackageBase *const pkg)
+void StudentManager::handlePackage(PackageBase *const pkg)
 {
     #ifdef TUP_DEBUG
-        qDebug() << "[UserManager::handlePackage()]";
+        qDebug() << "[StudentManager::handlePackage()]";
     #endif
 
     QString root = pkg->root();
@@ -147,59 +147,59 @@ void UserManager::handlePackage(PackageBase *const pkg)
         ConnectParser parser(package);
 
         if (parser.parse()) {
-            QString username = parser.username();
+            QString studentname = parser.studentname();
             QString passwd = parser.password();
 
-            if (username.length() > 0 && passwd.length() > 0) {
-                if (userExists(username)){
-                    if (verifyPassword(username, passwd)) {
-                        if (!m_user->isEnabled() || !m_user->isCreator()) {
-                            Logger::self()->error(QObject::tr("User \"%1\" is disabled to log in").arg(username));
+            if (studentname.length() > 0 && passwd.length() > 0) {
+                if (studentExists(studentname)){
+                    if (verifyPassword(studentname, passwd)) {
+                        if (!m_student->isEnabled() || !m_student->isCreator()) {
+                            Logger::self()->error(QObject::tr("Student \"%1\" is disabled to log in").arg(studentname));
                             #ifdef TUP_DEBUG
-                                   qDebug() << "[UserManager::handlePackage()] - Error: User " << username << " is disabled to log in";
+                                   qDebug() << "[StudentManager::handlePackage()] - Error: Student " << studentname << " is disabled to log in";
                             #endif
 
-                            Ban ban(username, 0);
+                            Ban ban(studentname, 0);
                             connection->sendStringToClient(ban, false);
                             return;
                         }
 
-                        if (m_online.contains(username)) {
-                            Notification error(400, QObject::tr("User is already logged on"), Notification::Error);
+                        if (m_online.contains(studentname)) {
+                            Notification error(400, QObject::tr("Student is already logged on"), Notification::Error);
                             connection->sendStringToClient(error);
-                            Logger::self()->error(QObject::tr("User is already logged on -> %1").arg(username));
+                            Logger::self()->error(QObject::tr("Student is already logged on -> %1").arg(studentname));
                             connection->close();
                             return;
                         } else {
-                            m_online << username;
+                            m_online << studentname;
                         }
 
                         if (parser.clientType() == 0) {
-                            Logger::self()->info(QObject::tr("User \"%1\" has logged in from artist client [%2]").arg(username, ip));
-                            emit userConnected(username, ip);
+                            Logger::self()->info(QObject::tr("Student \"%1\" has logged in from artist client [%2]").arg(studentname, ip));
+                            emit studentConnected(studentname, ip);
                         } else {
-                            Logger::self()->error(QObject::tr("User \"%1\" has logged in from unknown client").arg(username));
+                            Logger::self()->error(QObject::tr("Student \"%1\" has logged in from unknown client").arg(studentname));
                             #ifdef TUP_DEBUG
-                                   qDebug() << "[UserManager::handlePackage()] - Connection denied!";
+                                   qDebug() << "[StudentManager::handlePackage()] - Connection denied!";
                             #endif
                             connection->close();
                             return;
                         }
 
-                        connection->setUser(m_user);
+                        connection->setStudent(m_student);
                         Ack ack(connection->sign());
                         connection->sendStringToClient(ack, false);
 
                     } else {
-                        Notification error(400, QObject::tr("Invalid username or password"), Notification::Error);
+                        Notification error(400, QObject::tr("Invalid studentname or password"), Notification::Error);
                         connection->sendStringToClient(error);
-                        Logger::self()->error(QObject::tr("Invalid username or password -> %1").arg(username));
+                        Logger::self()->error(QObject::tr("Invalid studentname or password -> %1").arg(studentname));
                         connection->close();
                     }
                 } else {
-                    Notification error(402, QObject::tr("User <b>%1</b> doesn't exist").arg(username), Notification::Error);
+                    Notification error(402, QObject::tr("Student <b>%1</b> doesn't exist").arg(studentname), Notification::Error);
                     connection->sendStringToClient(error);
-                    Logger::self()->error(QObject::tr("User doesn't exist -> %1").arg(username));
+                    Logger::self()->error(QObject::tr("Student doesn't exist -> %1").arg(studentname));
                     connection->close();
                 }
             } else {
@@ -211,19 +211,19 @@ void UserManager::handlePackage(PackageBase *const pkg)
         } else {
             Logger::self()->error(QObject::tr("Null data within package coming from %1").arg(ip));
             #ifdef TUP_DEBUG
-                   qDebug() << "[UserManager::handlePackage()] - Error: Null data within package coming from " << ip;
+                   qDebug() << "[StudentManager::handlePackage()] - Error: Null data within package coming from " << ip;
             #endif
             connection->close();
         }
     } 
 }
 
-void UserManager::closeConnection(Connection *connection)
+void StudentManager::closeConnection(Connection *connection)
 {
-    User *user = connection->user();
-    if (user) {
-        QString username = user->login();
-        m_online.removeAll(username);
-        emit userDisconnected(username);
+    Student *student = connection->student();
+    if (student) {
+        QString studentname = student->login();
+        m_online.removeAll(studentname);
+        emit studentDisconnected(studentname);
     }
 }

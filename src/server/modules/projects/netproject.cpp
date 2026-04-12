@@ -68,9 +68,9 @@ NetProject::~NetProject()
     killTimer(m_timerId);
 }
 
-void NetProject::setProjectParams(int userID)
+void NetProject::setProjectParams(int studentID)
 {
-    m_owner = userID;
+    m_owner = studentID;
     QList<QString> date = currentTime();
     QString year  = date.at(0);
     QString month = date.at(1);
@@ -197,19 +197,19 @@ void NetProject::timerEvent(QTimerEvent *)
     save();
 }
 
-bool NetProject::addUser(int userID)
+bool NetProject::addStudent(int studentID)
 {
-    if (!m_users.contains(userID)) {
-        m_users.append(userID);
+    if (!m_students.contains(studentID)) {
+        m_students.append(studentID);
         return true;
     }
 
     return false;
 }
 
-void NetProject::setUsers(const QList<int> &users)
+void NetProject::setStudents(const QList<int> &students)
 {
-    m_users = users;
+    m_students = students;
 }
 
 void NetProject::setFilename(const QString &file)
@@ -222,9 +222,9 @@ QString NetProject::filename() const
     return m_file;
 }
 
-bool NetProject::isOwner(int userID)
+bool NetProject::isOwner(int studentID)
 {
-    return userID == m_owner;
+    return studentID == m_owner;
 }
 
 QString NetProject::date() const

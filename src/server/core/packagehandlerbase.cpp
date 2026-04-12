@@ -36,7 +36,7 @@
 #include "tapplicationproperties.h"
 
 #include "notification.h"
-#include "user.h"
+#include "../modules/students/student.h"
 #include "settings.h"
 #include "logger.h"
 

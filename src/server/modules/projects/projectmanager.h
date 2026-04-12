@@ -91,7 +91,7 @@ signals:
         void sendToProjectMembers(Connection *connection, QDomDocument &doc);
 
         void registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project);
-        void listUserProjects(Connection *connection);
+        void listStudentProjects(Connection *connection);
         QString currentDate() const;
         void loadVideoPlugin();
 

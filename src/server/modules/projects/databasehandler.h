@@ -41,6 +41,31 @@
 
 class DatabaseHandler
 {
+public:
+    // Class and Period management
+    struct ClassInfo {
+        int classId;
+        QString name;
+        int year;
+        QString description;
+    };
+    struct PeriodInfo {
+        int periodId;
+        QString name;
+        int year;
+        QString startDate;
+        QString endDate;
+    };
+
+    QList<ClassInfo> getAllClasses() const;
+    bool addClass(const QString &name, int year, const QString &description);
+    bool updateClass(int classId, const QString &name, int year, const QString &description);
+    bool removeClass(int classId);
+
+    QList<PeriodInfo> getAllPeriods() const;
+    bool addPeriod(const QString &name, int year, const QString &startDate, const QString &endDate);
+    bool updatePeriod(int periodId, const QString &name, int year, const QString &startDate, const QString &endDate);
+    bool removePeriod(int periodId);
     public:
 
         struct ProjectInfo
@@ -50,17 +75,23 @@ class DatabaseHandler
             QString description;
             QString date;
             QString file;
+            int classId;
+            QString className;
+            int periodId;
+            QString periodName;
+            bool groupProject;
         };
 
-        struct UserInfo
+        struct StudentInfo
         {
-            int userId;
-            QString username;
+            int studentId;
+            QString studentname;
             QString name;
             QString password;
             bool isEnabled;
             bool isCreator;
-            QString userClass;
+            int classId;
+            QString className;
         };
 
         enum MediaType { DeskImg = 0, DeskAnim, DeskStory };
@@ -70,7 +101,7 @@ class DatabaseHandler
         
         bool addProject(const NetProject *project);
 
-	QString getUserID(const QString &username) const;
+	QString getStudentID(const QString &studentname) const;
         bool addWork(const QString &projectID, const QString &type, const QString &owner, const QString &title, 
                      const QString &topics, const QString &desc, const QString &filename, bool portrait);
 
@@ -81,27 +112,27 @@ class DatabaseHandler
 
         bool slugExists(const QString &slug, const QString &owner);
         QString storyboardID(const QString &uid, const QString &directory) const;
-        QList<DatabaseHandler::ProjectInfo> userProjects(int userID, const QString &login);
-        QList< DatabaseHandler::ProjectInfo> partnerProjects(int userID);
+        QList<DatabaseHandler::ProjectInfo> studentProjects(int studentID, const QString &login);
+        QList< DatabaseHandler::ProjectInfo> partnerProjects(int studentID);
 
         QString exists(const QString &projectName, const QString &ownerID) const;
-        bool accessIsConfirmed(const QString &filename, int userID);
-        QString userID(const QString &login) const;
+        bool accessIsConfirmed(const QString &filename, int studentID);
+        QString studentID(const QString &login) const;
         bool addLog(const QString &type, const QString &filename, const QString &ip);
 
-        // User management methods (for classroom administration)
-        QList<UserInfo> getAllUsers() const;
-        bool addUser(const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass);
-        bool updateUser(int userId, const QString &username, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &userClass);
-        bool removeUser(int userId);
-        bool usernameExists(const QString &username) const;
+        // Student management methods (for classroom administration)
+        QList<StudentInfo> getAllStudents() const;
+        bool addStudent(const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass);
+        bool updateStudent(int studentId, const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass);
+        bool removeStudent(int studentId);
+        bool studentnameExists(const QString &studentname) const;
 
         // Collaboration management methods (teacher-only from server GUI)
         struct CollaboratorInfo
         {
             int collaborationId;
-            int userId;
-            QString username;
+            int studentId;
+            QString studentname;
             QString name;
             int permissionLevel;
         };
@@ -112,36 +143,41 @@ class DatabaseHandler
             QString title;
             QString filename;
             int ownerId;
-            QString ownerUsername;
+            QString ownerStudentname;
             QString description;
             QString createdAt;
             bool isShared;
+            int classId;
+            QString className;
+            int periodId;
+            QString periodName;
+            bool groupProject;
         };
 
         QList<ProjectRecord> getAllProjects() const;
         QList<CollaboratorInfo> getProjectCollaborators(int projectId) const;
-        bool addCollaborator(int projectId, int userId, int permissionLevel = 1);
-        bool removeCollaborator(int projectId, int userId);
+        bool addCollaborator(int projectId, int studentId, int permissionLevel = 1);
+        bool removeCollaborator(int projectId, int studentId);
         bool deleteProject(int projectId);
         QString getProjectFilename(int projectId) const;
         int getProjectOwnerId(int projectId) const;
-        QString getOwnerUsername(int projectId) const;
+        QString getOwnerStudentname(int projectId) const;
         bool createEmptyProject(const QString &title, const QString &description, int ownerId, 
-                                const QString &filename, const QList<int> &collaboratorIds);
+                    const QString &filename, const QList<int> &collaboratorIds, int periodId);
 
         // Chat message storage (for teacher review)
         struct ChatMessage
         {
             int chatId;
             int projectId;
-            int userId;
-            QString username;
+            int studentId;
+            QString studentname;
             QString message;
             QString messageType;  // "chat", "notice", "wall"
             QString createdAt;
         };
 
-        bool saveChatMessage(int projectId, int userId, const QString &username, 
+        bool saveChatMessage(int projectId, int studentId, const QString &studentname, 
                              const QString &message, const QString &messageType = "chat");
         QList<ChatMessage> getChatHistory(int projectId = -1, int limit = 500) const;
         QList<ChatMessage> getChatHistoryByDate(const QString &fromDate, const QString &toDate) const;
@@ -151,7 +187,7 @@ class DatabaseHandler
         QString incomingFolderID(const QString &uid, const QString &type) const;
         QString worksPublicPolicy(const QString &owner) const;
         QString projectKey(const QString &filename) const;
-        QString userLogin(const QString &owner) const;
+        QString studentLogin(const QString &owner) const;
         int count(const QString &sql);
 };
 

@@ -2,6 +2,6 @@ TEMPLATE = subdirs
 
 CONFIG += warn_on ordered
 
-SUBDIRS += users \
+SUBDIRS += students \
            projects \
            communications

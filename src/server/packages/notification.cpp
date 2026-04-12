@@ -63,10 +63,10 @@ ERROR CODES
   383 : Error while posting video %1
   384 : Error while posting storyboard %1
 
-- Users
+- Students
   400 : Invalid login or password
-  401 : Error adding user %1
-  402 : User doesn't exist 
+  401 : Error adding student %1
+  402 : Student doesn't exist 
   403 : Invalid/Corrupted package
 
   460 : Insufficient permissions

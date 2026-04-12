@@ -59,10 +59,10 @@ bool ProjectActionParser::parse()
         readNext();
         if (isStartElement()) {
             QString tag = QXmlStreamReader::name().toString();
-            if (tag == "user") {
+            if (tag == "student") {
                 m_type = attributes().value("type").toInt();
                 QString text = readElementText().simplified();
-                m_users.insert(m_type, text);
+                m_students.insert(m_type, text);
             } else if (tag == "name") {
                 m_name = readElementText().simplified();
             } else if (tag == "author") {
@@ -133,9 +133,9 @@ int ProjectActionParser::fps() const
     return m_fps;
 }
 
-QMultiHash<int, QString> ProjectActionParser::users()
+QMultiHash<int, QString> ProjectActionParser::students()
 {
-    return m_users;
+    return m_students;
 }
 
 QString ProjectActionParser::package(QString package, const QString &date)

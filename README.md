@@ -47,11 +47,14 @@ The server stores its configuration in `~/.tupitube_server/` including:
 
 https://tupitube.com
 
+
 ## Bug Reports
 
-Please report issues at: https://tupitube.com
+To report bugs or request features for TupiTube Server, please use the official issue tracker:
 
-Include:
+https://github.com/utopianlabco/tupitube.server/issues
+
+Include in your report:
 - Steps to reproduce the problem
 - Description of expected vs actual behavior
 - Version information and operating system

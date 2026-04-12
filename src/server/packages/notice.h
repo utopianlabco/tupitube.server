@@ -39,7 +39,7 @@
 class Notice : public QDomDocument
 {
     public:
-        Notice(const QString &user, int state);
+        Notice(const QString &student, int state);
         ~Notice();
 };
 

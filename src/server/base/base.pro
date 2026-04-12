@@ -4,7 +4,7 @@ target.path = /lib
 TEMPLATE = lib
 CONFIG += warn_on dll
 
-INCLUDEPATH += ../core ../packages ../modules/users
+INCLUDEPATH += ../core ../packages ../modules/students
 
 PRI_FILE = ../../../tupitube_config.pri
 exists ($$PRI_FILE) {
