@@ -136,8 +136,8 @@ void TcpServer::initDataBase()
             m_db.setConnectOptions("MYSQL_OPT_RECONNECT=1");
     }
 
-    bool ok = m_db.open();
 
+    bool ok = m_db.open();
     if (!ok) {
         QSqlError error = m_db.lastError();
         #ifdef TUP_DEBUG
@@ -145,6 +145,28 @@ void TcpServer::initDataBase()
                qDebug() << "[TcpServer::initDataBase()] - Description: " << error.text();
         #endif
         exit(1);
+    }
+    // Enforce foreign key constraints for SQLite and check schema
+    if (driver == "QSQLITE") {
+        QSqlQuery pragmaQuery(m_db);
+        pragmaQuery.exec("PRAGMA foreign_keys = ON;");
+
+        // Check that the foreign key constraint on tupitube_project.student_id is ON DELETE RESTRICT
+        QSqlQuery fkQuery(m_db);
+        fkQuery.exec("PRAGMA foreign_key_list('tupitube_project')");
+        bool foundRestrict = false;
+        while (fkQuery.next()) {
+            QString from = fkQuery.value(3).toString(); // 'from' column
+            QString to = fkQuery.value(4).toString();   // 'to' column
+            QString onDelete = fkQuery.value(6).toString(); // 'on_delete' column
+            if (from == "student_id" && to == "student_id" && onDelete.toUpper() == "RESTRICT") {
+                foundRestrict = true;
+                break;
+            }
+        }
+        if (!foundRestrict) {
+            qWarning() << "[TcpServer::initDataBase()] - WARNING: Foreign key constraint on tupitube_project.student_id is not ON DELETE RESTRICT. Project ownership integrity is NOT enforced!";
+        }
     }
 
     // Check if tables exist, create them if not
@@ -252,6 +274,25 @@ void TcpServer::createDatabaseSchema()
     if (!query.exec(createProjectStudentTable)) {
         #ifdef TUP_DEBUG
             qDebug() << "[TcpServer::createDatabaseSchema()] - Error creating project_student:" << query.lastError().text();
+        #endif
+    }
+
+    // Create tupitube_chat table
+    QString createChatTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_chat ("
+        "chat_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "project_id INTEGER,"
+        "student_id INTEGER NOT NULL,"
+        "studentname VARCHAR(50) NOT NULL,"
+        "message TEXT NOT NULL,"
+        "message_type VARCHAR(20) DEFAULT 'chat',"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT"
+        ");";
+    if (!query.exec(createChatTable)) {
+        #ifdef TUP_DEBUG
+            qDebug() << "[TcpServer::createDatabaseSchema()] - Error creating tupitube_chat:" << query.lastError().text();
         #endif
     }
 

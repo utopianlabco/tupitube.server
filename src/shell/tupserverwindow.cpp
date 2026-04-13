@@ -1413,8 +1413,10 @@ void TupServerWindow::removeStudent()
             appendLog(tr("Student '%1' removed successfully").arg(studentname), "INFO");
             refreshStudentsList();
         } else {
-            QMessageBox::critical(this, tr("Error"), tr("Failed to remove student"));
-            appendLog(tr("Failed to remove student '%1'").arg(studentname), "ERROR");
+            // Check if the failure is due to foreign key constraint (student owns projects)
+            QMessageBox::critical(this, tr("Error"),
+                tr("Cannot remove student '%1' because they own one or more projects. Please reassign or delete their projects first.").arg(studentname));
+            appendLog(tr("Failed to remove student '%1' (owns projects)").arg(studentname), "ERROR");
         }
     }
 }

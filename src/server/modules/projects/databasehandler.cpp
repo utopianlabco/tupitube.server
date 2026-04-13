@@ -743,15 +743,19 @@ bool DatabaseHandler::removeStudent(int studentId)
     #endif
 
     QString sql = "DELETE FROM tupitube_student WHERE student_id = " + QString::number(studentId);
-
     QSqlQuery query;
     bool isOk = query.exec(sql);
 
-    #ifdef TUP_DEBUG
-        qWarning() << "[DatabaseHandler::removeStudent()] - SQL:" << sql;
-        if (!isOk)
-            qWarning() << "[DatabaseHandler::removeStudent()] - Error:" << query.lastError().text();
-    #endif
+    if (!isOk) {
+        QSqlError err = query.lastError();
+        // Check for foreign key constraint error (SQLITE_CONSTRAINT 19)
+        if (err.type() == QSqlError::StatementError && err.nativeErrorCode() == "19") {
+            // This means the student owns projects or is referenced elsewhere
+            qWarning() << "[DatabaseHandler::removeStudent()] - Cannot delete student: owns projects or is referenced.";
+        } else {
+            qWarning() << "[DatabaseHandler::removeStudent()] - Error:" << err.text();
+        }
+    }
 
     return isOk;
 }
