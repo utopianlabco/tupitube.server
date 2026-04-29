@@ -2,309 +2,137 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="es_ES">
 <context>
-    <name>QObject</name>
+    <name>GenericExportPlugin</name>
     <message>
-        <source>Closing server with signal: </source>
-        <translation>Cerrando servidor con señal: </translation>
+        <source>Video Formats</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
-    <name>TupServerWindow</name>
+    <name>QObject</name>
     <message>
-        <source>TupiTube Server</source>
-        <translation>Servidor TupiTube</translation>
+        <source>Student &quot;%1&quot; has logged off [%2]</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>TupiTube Server GUI initialized</source>
-        <translation>Interfaz del Servidor TupiTube inicializada</translation>
+        <source>TupiTube media server started on %1:%2</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;File</source>
-        <translation>&amp;Archivo</translation>
+        <source>Student &quot;%1&quot; is disabled to log in</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>E&amp;xit</source>
-        <translation>&amp;Salir</translation>
+        <source>Student is already logged on</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Server</source>
-        <translation>&amp;Servidor</translation>
+        <source>Student is already logged on -&gt; %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Start Server</source>
-        <translation>&amp;Iniciar Servidor</translation>
+        <source>Student &quot;%1&quot; has logged in from artist client [%2]</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Clear Logs</source>
-        <translation>&amp;Limpiar Registros</translation>
+        <source>Student &quot;%1&quot; has logged in from unknown client</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;View</source>
-        <translation>&amp;Ver</translation>
+        <source>Invalid studentname or password</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Status</source>
-        <translation>&amp;Estado</translation>
+        <source>Invalid studentname or password -&gt; %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Students</source>
-        <translation>&amp;Usuarios</translation>
+        <source>Student &lt;b&gt;%1&lt;/b&gt; doesn&apos;t exist</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Logs</source>
-        <translation>&amp;Registros</translation>
+        <source>Student doesn&apos;t exist -&gt; %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Se&amp;ttings</source>
-        <translation>Con&amp;figuración</translation>
+        <source>Network error: Corrupted Package!</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;Help</source>
-        <translation>A&amp;yuda</translation>
+        <source>Null data within package coming from %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&amp;About</source>
-        <translation>&amp;Acerca de</translation>
+        <source>Project saved successfully</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>About TupiTube Server</source>
-        <translation>Acerca del Servidor TupiTube</translation>
+        <source>Error saving project %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&lt;h3&gt;TupiTube Server&lt;/h3&gt;&lt;p&gt;A collaboration server for TupiTube Desk.&lt;/p&gt;&lt;p&gt;Allows multiple artists to work on the same animation project in real-time.&lt;/p&gt;&lt;p&gt;Website: &lt;a href=&apos;http://www.tupitube.com&apos;&gt;www.tupitube.com&lt;/a&gt;&lt;/p&gt;</source>
-        <translation>&lt;h3&gt;Servidor TupiTube&lt;/h3&gt;&lt;p&gt;Un servidor de colaboración para TupiTube Desk.&lt;/p&gt;&lt;p&gt;Permite que múltiples artistas trabajen en el mismo proyecto de animación en tiempo real.&lt;/p&gt;&lt;p&gt;Sitio web: &lt;a href=&apos;http://www.tupitube.com&apos;&gt;www.tupitube.com&lt;/a&gt;&lt;/p&gt;</translation>
+        <source>No valid Period found for today&apos;s date. Cannot create project.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Status</source>
-        <translation>Estado</translation>
+        <source>Can&apos;t create project &quot;%1&quot;</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Students</source>
-        <translation>Usuarios</translation>
+        <source>New project &quot;%1&quot; has been created by student %2</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Logs</source>
-        <translation>Registros</translation>
+        <source>Cannot create project &quot;%1&quot;</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Settings</source>
-        <translation>Configuración</translation>
+        <source>Insufficient Permissions</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Server Control</source>
-        <translation>Control del Servidor</translation>
+        <source>Error while loading project %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Start Server</source>
-        <translation>Iniciar Servidor</translation>
+        <source>Student %1 from %2 opened project: %3</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Server Information</source>
-        <translation>Información del Servidor</translation>
+        <source>Project %1 doesn&apos;t exist</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Stopped</source>
-        <translation>Detenido</translation>
+        <source>Error while importing project %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Status:</source>
-        <translation>Estado:</translation>
+        <source>Cannot create project &quot;%1&quot; in server</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Host:</source>
-        <translation>Host:</translation>
+        <source>Project &quot;%1&quot; has been imported by student %2</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Port:</source>
-        <translation>Puerto:</translation>
+        <source>Cannot handle project request</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Active Connections:</source>
-        <translation>Conexiones Activas:</translation>
+        <source>Insufficient permissions</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Uptime:</source>
-        <translation>Tiempo Activo:</translation>
+        <source>Project %1 doesn&apos;t exist!</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Studentname</source>
-        <translation>Usuario</translation>
+        <source>Malformed package coming from -&gt; %1</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>IP Address</source>
-        <translation>Dirección IP</translation>
-    </message>
-    <message>
-        <source>Connected At</source>
-        <translation>Conectado A</translation>
-    </message>
-    <message>
-        <source>Clear Logs</source>
-        <translation>Limpiar Registros</translation>
-    </message>
-    <message>
-        <source>Connection Settings</source>
-        <translation>Configuración de Conexión</translation>
-    </message>
-    <message>
-        <source>Database Settings</source>
-        <translation>Configuración de Base de Datos</translation>
-    </message>
-    <message>
-        <source>Browse...</source>
-        <translation>Explorar...</translation>
-    </message>
-    <message>
-        <source>Select Database Directory</source>
-        <translation>Seleccionar Directorio de Base de Datos</translation>
-    </message>
-    <message>
-        <source>Database Path:</source>
-        <translation>Ruta de Base de Datos:</translation>
-    </message>
-    <message>
-        <source>Projects Settings</source>
-        <translation>Configuración de Proyectos</translation>
-    </message>
-    <message>
-        <source>Select Projects Directory</source>
-        <translation>Seleccionar Directorio de Proyectos</translation>
-    </message>
-    <message>
-        <source>Projects Repository Path:</source>
-        <translation>Ruta del Repositorio de Proyectos:</translation>
-    </message>
-    <message>
-        <source>Language Settings</source>
-        <translation>Configuración de Idioma</translation>
-    </message>
-    <message>
-        <source>Language:</source>
-        <translation>Idioma:</translation>
-    </message>
-    <message>
-        <source>Save Settings</source>
-        <translation>Guardar Configuración</translation>
-    </message>
-    <message>
-        <source>Show Window</source>
-        <translation>Mostrar Ventana</translation>
-    </message>
-    <message>
-        <source>Quit</source>
-        <translation>Salir</translation>
-    </message>
-    <message>
-        <source>Warning</source>
-        <translation>Advertencia</translation>
-    </message>
-    <message>
-        <source>Please stop the server before changing settings.</source>
-        <translation>Por favor detenga el servidor antes de cambiar la configuración.</translation>
-    </message>
-    <message>
-        <source>Settings have been saved.</source>
-        <translation>La configuración ha sido guardada.</translation>
-    </message>
-    <message>
-        <source>Language change will take effect after restarting the application.</source>
-        <translation>El cambio de idioma tendrá efecto después de reiniciar la aplicación.</translation>
-    </message>
-    <message>
-        <source>They will take effect when the server is restarted.</source>
-        <translation>Tendrán efecto cuando el servidor sea reiniciado.</translation>
-    </message>
-    <message>
-        <source>Settings saved successfully</source>
-        <translation>Configuración guardada exitosamente</translation>
-    </message>
-    <message>
-        <source>Settings Saved</source>
-        <translation>Configuración Guardada</translation>
-    </message>
-    <message>
-        <source>Failed to create database directory: %1</source>
-        <translation>Error al crear directorio de base de datos: %1</translation>
-    </message>
-    <message>
-        <source>Error</source>
-        <translation>Error</translation>
-    </message>
-    <message>
-        <source>Failed to create projects directory: %1</source>
-        <translation>Error al crear directorio de proyectos: %1</translation>
-    </message>
-    <message>
-        <source>Failed to start server on %1:%2</source>
-        <translation>Error al iniciar servidor en %1:%2</translation>
-    </message>
-    <message>
-        <source>Failed to start server on %1:%2
-
-Please check if the port is already in use.</source>
-        <translation>Error al iniciar servidor en %1:%2
-
-Por favor verifique si el puerto ya está en uso.</translation>
-    </message>
-    <message>
-        <source>Stop Server</source>
-        <translation>Detener Servidor</translation>
-    </message>
-    <message>
-        <source>Running</source>
-        <translation>Ejecutando</translation>
-    </message>
-    <message>
-        <source>Sto&amp;p Server</source>
-        <translation>De&amp;tener Servidor</translation>
-    </message>
-    <message>
-        <source>Server started on %1:%2</source>
-        <translation>Servidor iniciado en %1:%2</translation>
-    </message>
-    <message>
-        <source>Server started successfully</source>
-        <translation>Servidor iniciado exitosamente</translation>
-    </message>
-    <message>
-        <source>Server stopped</source>
-        <translation>Servidor detenido</translation>
-    </message>
-    <message>
-        <source>Connected</source>
-        <translation>Conectado</translation>
-    </message>
-    <message>
-        <source>Student connected: %1 from %2</source>
-        <translation>Usuario conectado: %1 desde %2</translation>
-    </message>
-    <message>
-        <source>Student disconnected: %1</source>
-        <translation>Usuario desconectado: %1</translation>
-    </message>
-    <message>
-        <source>Logs cleared</source>
-        <translation>Registros limpiados</translation>
-    </message>
-    <message>
-        <source>TupiTube Server
-Status: %1
-Connections: %2</source>
-        <translation>Servidor TupiTube
-Estado: %1
-Conexiones: %2</translation>
-    </message>
-    <message>
-        <source>Server is running. Are you sure you want to quit?</source>
-        <translation>El servidor está ejecutándose. ¿Está seguro que desea salir?</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to quit?</source>
-        <translation>¿Está seguro que desea salir?</translation>
-    </message>
-    <message>
-        <source>Confirm Exit</source>
-        <translation>Confirmar Salida</translation>
+        <source>Project &quot;%1&quot; has been closed</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 </TS>

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS tupitube_project (
     group_project INTEGER DEFAULT 0, -- 0: individual, 1: group
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
+    last_rendered_at DATETIME, -- Timestamp of last successful render
     FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
     FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT,
     FOREIGN KEY (period_id) REFERENCES period(period_id) ON DELETE RESTRICT
@@ -96,7 +97,7 @@ CREATE TABLE IF NOT EXISTS tupitube_work (
     project_id INTEGER,
     collection_id INTEGER,
     type_id INTEGER,
-    type VARCHAR(20),
+    type VARCHAR(20), -- e.g., 'animation', 'image'
     title VARCHAR(100),
     content TEXT,
     topics TEXT,
@@ -109,8 +110,12 @@ CREATE TABLE IF NOT EXISTS tupitube_work (
     duration REAL DEFAULT 0,
     portrait INTEGER DEFAULT 0,
     mobile INTEGER DEFAULT 0,
-    rendered INTEGER DEFAULT 0,
+    rendered INTEGER DEFAULT 0, -- 1 if up-to-date, 0 if needs rendering
     uploaded INTEGER DEFAULT 0,
+    render_status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'success', 'failed'
+    render_message TEXT, -- error or status message
+    render_output VARCHAR(255), -- path to rendered file (e.g., MP4)
+    last_rendered_at DATETIME, -- Timestamp of last render for this work
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
     FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,

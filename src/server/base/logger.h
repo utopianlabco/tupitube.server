@@ -40,26 +40,28 @@
 
 class Logger
 {
-    protected:
-        Logger();
-        
-    public:
-        ~Logger();
-        static Logger *self();
-        
-        void setLogFile(const QString &logfile);
-        QString logFile() const;
-        void warn(const QString &log);
-        void error(const QString &err);
-        void info(const QString &inf);
-        void fatal(const QString &fatal);
-        
-    protected:
-        void write(const QByteArray &msg);
-        
-    private:
-        static Logger *s_self;
-        QFile m_file;
+protected:
+    Logger();
+
+public:
+    ~Logger();
+    static Logger *self();
+    void setLogFile(const QString &logfile);
+    QString logFile() const;
+    void warn(const QString &log);
+    void error(const QString &err);
+    void info(const QString &inf);
+    void fatal(const QString &fatal);
+    static void reset();
+
+protected:
+    void write(const QByteArray &msg);
+
+private:
+    static Logger *s_self;
+    static bool s_destroyed;
+    QFile m_file;
+    // (duplicates removed)
 };
 
 #endif

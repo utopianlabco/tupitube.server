@@ -266,6 +266,8 @@ void TupServerWindow::setupClassesTab()
 
     m_classesTable = new QTableWidget(0, 3);
     m_classesTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("Year")});
+    m_classesTable->setColumnWidth(1, 220); // Name column wider
+    m_classesTable->setColumnWidth(2, 80);  // Year column narrower
     m_classesTable->horizontalHeader()->setStretchLastSection(true);
     m_classesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_classesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -276,11 +278,10 @@ void TupServerWindow::setupClassesTab()
     m_addClassButton = new QPushButton(tr("Add Class"));
     m_editClassButton = new QPushButton(tr("Edit Class"));
     m_removeClassButton = new QPushButton(tr("Remove Class"));
-    m_refreshClassesButton = new QPushButton(tr("Refresh"));
+    // m_refreshClassesButton removed
     classBtnLayout->addWidget(m_addClassButton);
     classBtnLayout->addWidget(m_editClassButton);
     classBtnLayout->addWidget(m_removeClassButton);
-    classBtnLayout->addWidget(m_refreshClassesButton);
     classBtnLayout->addStretch();
     classesLayout->addLayout(classBtnLayout);
 
@@ -292,6 +293,8 @@ void TupServerWindow::setupClassesTab()
 
     m_periodsTable = new QTableWidget(0, 4);
     m_periodsTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("Year"), tr("Dates")});
+    m_periodsTable->setColumnWidth(1, 220); // Name column wider
+    m_periodsTable->setColumnWidth(3, 120); // Dates column narrower
     m_periodsTable->horizontalHeader()->setStretchLastSection(true);
     m_periodsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_periodsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -315,7 +318,6 @@ void TupServerWindow::setupClassesTab()
     connect(m_addClassButton, &QPushButton::clicked, this, &TupServerWindow::onAddClass);
     connect(m_editClassButton, &QPushButton::clicked, this, &TupServerWindow::onEditClass);
     connect(m_removeClassButton, &QPushButton::clicked, this, &TupServerWindow::onRemoveClass);
-    connect(m_refreshClassesButton, &QPushButton::clicked, this, &TupServerWindow::refreshClassesList);
     connect(m_classesTable, &QTableWidget::doubleClicked, this, &TupServerWindow::onEditClass);
     connect(m_addPeriodButton, &QPushButton::clicked, this, &TupServerWindow::onAddPeriod);
     connect(m_editPeriodButton, &QPushButton::clicked, this, &TupServerWindow::onEditPeriod);
@@ -464,12 +466,8 @@ void TupServerWindow::setupStudentsTab()
     buttonLayout->addWidget(m_importCsvButton);
     buttonLayout->addStretch();
 
-    m_refreshStudentsButton = new QPushButton(tr("Refresh"));
-    m_refreshStudentsButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    connect(m_refreshStudentsButton, &QPushButton::clicked, this, [this]() {
-        refreshStudentsList(m_studentFilterEdit->text());
-    });
-    buttonLayout->addWidget(m_refreshStudentsButton);
+    // m_refreshStudentsButton removed
+    // buttonLayout->addWidget(m_refreshStudentsButton);
 
     registeredLayout->addLayout(buttonLayout);
     layout->addWidget(registeredGroup);
@@ -485,10 +483,22 @@ void TupServerWindow::setupProjectsTab()
     QGroupBox *projectsGroup = new QGroupBox(tr("Projects"));
     QVBoxLayout *projectsLayout = new QVBoxLayout(projectsGroup);
 
+    // Filter line edit for Projects
+    m_projectFilterEdit = new QLineEdit();
+    m_projectFilterEdit->setPlaceholderText(tr("Filter projects by title, owner, or shared status..."));
+    projectsLayout->addWidget(m_projectFilterEdit);
+    connect(m_projectFilterEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        refreshProjectsList(text);
+    });
+
     m_projectsTable = new QTableWidget(0, 5);
     m_projectsTable->setHorizontalHeaderLabels({tr("ID"), tr("Title"), tr("Owner"), tr("Shared"), tr("Created")});
-    m_projectsTable->horizontalHeader()->setStretchLastSection(true);
     m_projectsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_projectsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed); // Title
+    m_projectsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed); // Shared
+    m_projectsTable->setColumnWidth(1, 220); // Title column wider
+    m_projectsTable->setColumnWidth(3, 60);  // Shared column slightly wider
+    m_projectsTable->horizontalHeader()->setStretchLastSection(true);
     m_projectsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_projectsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_projectsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -529,10 +539,6 @@ void TupServerWindow::setupProjectsTab()
 
     projectButtonLayout->addStretch();
 
-    m_refreshProjectsButton = new QPushButton(tr("Refresh"));
-    m_refreshProjectsButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    connect(m_refreshProjectsButton, &QPushButton::clicked, this, &TupServerWindow::refreshProjectsList);
-    projectButtonLayout->addWidget(m_refreshProjectsButton);
 
     projectsLayout->addLayout(projectButtonLayout);
     layout->addWidget(projectsGroup);
@@ -620,17 +626,23 @@ void TupServerWindow::setupSettingsTab()
     connect(m_dataPathEdit, &QLineEdit::textChanged, this, &TupServerWindow::updateDerivedPaths);
 
     // Derived paths (read-only info labels)
+
     m_databasePathLabel = new QLabel();
     m_databasePathLabel->setStyleSheet("color: gray;");
     storageLayout->addRow(tr("Database:"), m_databasePathLabel);
+
+
+    m_projectsPathLabel = new QLabel();
+    m_projectsPathLabel->setStyleSheet("color: gray;");
+    storageLayout->addRow(tr("Projects:"), m_projectsPathLabel);
 
     m_cachePathLabel = new QLabel();
     m_cachePathLabel->setStyleSheet("color: gray;");
     storageLayout->addRow(tr("Cache:"), m_cachePathLabel);
 
-    m_projectsPathLabel = new QLabel();
-    m_projectsPathLabel->setStyleSheet("color: gray;");
-    storageLayout->addRow(tr("Projects:"), m_projectsPathLabel);
+    m_renderPathLabel = new QLabel();
+    m_renderPathLabel->setStyleSheet("color: gray;");
+    storageLayout->addRow(tr("Render:"), m_renderPathLabel);
 
     layout->addWidget(storageGroup);
 
@@ -751,6 +763,7 @@ void TupServerWindow::updateDerivedPaths()
     m_databasePathLabel->setText(dataPath + "/sqlite");
     m_cachePathLabel->setText(dataPath + "/cache");
     m_projectsPathLabel->setText(dataPath + "/students");
+    m_renderPathLabel->setText(dataPath + "/render");
 }
 
 void TupServerWindow::saveSettings()
@@ -823,6 +836,7 @@ void TupServerWindow::saveConfigSettings()
     TCONFIG->setValue("BgColor", TServerTheme::defaultBgColor(newTheme));
     TCONFIG->endGroup();
 
+
     TCONFIG->beginGroup("Database");
     TCONFIG->setValue("DatabasePath", dataPath + "/sqlite");
     TCONFIG->endGroup();
@@ -833,6 +847,11 @@ void TupServerWindow::saveConfigSettings()
 
     TCONFIG->beginGroup("Projects");
     TCONFIG->setValue("ProjectsPath", dataPath + "/students");
+    TCONFIG->endGroup();
+
+    // Add Render path to config
+    TCONFIG->beginGroup("Render");
+    TCONFIG->setValue("RenderPath", dataPath + "/render");
     TCONFIG->endGroup();
 
     TCONFIG->sync();
@@ -895,6 +914,18 @@ void TupServerWindow::startServer()
         }
     }
 
+    // Create render directory if needed
+    QString renderPath = dataPath + "/render";
+    QDir renderDir(renderPath);
+    if (!renderDir.exists()) {
+        if (!renderDir.mkpath(renderPath)) {
+            appendLog(tr("Failed to create render directory: %1").arg(renderPath), "ERROR");
+            QMessageBox::critical(this, tr("Error"),
+                tr("Failed to create render directory: %1").arg(renderPath));
+            return;
+        }
+    }
+
     if (m_server->openConnection(host, port)) {
         onServerStarted();
     } else {
@@ -939,7 +970,7 @@ void TupServerWindow::onServerStarted()
 
     // Load registered students and projects now that database is open
     refreshStudentsList();
-    refreshProjectsList();
+    refreshProjectsList({});
 }
 
 void TupServerWindow::onServerStopped()
@@ -1146,6 +1177,37 @@ void TupServerWindow::refreshStudentsList(const QString &filter)
 
 void TupServerWindow::addStudent()
 {
+    // Check for at least one Class and one Period before allowing user creation
+    QList<DatabaseHandler::ClassInfo> classes = m_dbHandler->getAllClasses();
+    QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
+    if (classes.isEmpty() || periods.isEmpty()) {
+        QString missing;
+        bool needClass = classes.isEmpty();
+        bool needPeriod = periods.isEmpty();
+        if (needClass && needPeriod) {
+            missing = tr("No Classes and Periods found. Please create at least one Class and one Period before adding a student.");
+        } else if (needClass) {
+            missing = tr("No Classes found. Please create at least one Class before adding a student.");
+        } else {
+            missing = tr("No Periods found. Please create at least one Period before adding a student.");
+        }
+        QMessageBox::warning(this, tr("Cannot Add Student"), missing);
+        // After Ok, activate Classes tab and open the appropriate dialog
+        if (m_tabWidget && m_classesTab) {
+            int idx = m_tabWidget->indexOf(m_classesTab);
+            if (idx != -1) {
+                m_tabWidget->setCurrentIndex(idx);
+                // Open Add Class or Add Period dialog as needed
+                if (needClass) {
+                    onAddClass();
+                } else if (needPeriod) {
+                    onAddPeriod();
+                }
+            }
+        }
+        return;
+    }
+
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Add New Student"));
     dialog.setMinimumWidth(350);
@@ -1158,7 +1220,6 @@ void TupServerWindow::addStudent()
 
     QComboBox *classCombo = new QComboBox();
     classCombo->setEditable(false);
-    QList<DatabaseHandler::ClassInfo> classes = m_dbHandler->getAllClasses();
     for (const auto &c : classes) {
         classCombo->addItem(QString("%1 (%2)").arg(c.name).arg(c.year), c.classId);
     }
@@ -1423,32 +1484,6 @@ void TupServerWindow::removeStudent()
 
 // Project collaboration management slots
 
-void TupServerWindow::refreshProjectsList()
-{
-    m_projectsTable->setRowCount(0);
-    m_collaboratorsTable->setRowCount(0);
-
-    if (!m_dbHandler) {
-        appendLog(tr("Database handler not initialized"), "ERROR");
-        return;
-    }
-
-    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
-
-    for (const DatabaseHandler::ProjectRecord &project : projects) {
-        int row = m_projectsTable->rowCount();
-        m_projectsTable->insertRow(row);
-
-        m_projectsTable->setItem(row, 0, new QTableWidgetItem(QString::number(project.projectId)));
-        m_projectsTable->setItem(row, 1, new QTableWidgetItem(project.title));
-        m_projectsTable->setItem(row, 2, new QTableWidgetItem(project.ownerStudentname));
-        m_projectsTable->setItem(row, 3, new QTableWidgetItem(project.isShared ? tr("Yes") : tr("No")));
-        m_projectsTable->setItem(row, 4, new QTableWidgetItem(project.createdAt));
-    }
-
-    m_manageCollaboratorsButton->setEnabled(false);
-    appendLog(tr("Project list refreshed: %1 projects found").arg(projects.count()), "INFO");
-}
 
 void TupServerWindow::onProjectSelectionChanged()
 {
@@ -1702,7 +1737,7 @@ void TupServerWindow::createProject()
 
         if (dbSuccess) {
             appendLog(tr("Project '%1' created with %2 collaborators").arg(title).arg(collaboratorIds.count()), "INFO");
-            refreshProjectsList();
+            refreshProjectsList({});
         } else {
             QMessageBox::critical(this, tr("Error"), tr("Failed to add project to database"));
             appendLog(tr("Failed to add project '%1' to database").arg(title), "ERROR");
@@ -1834,7 +1869,7 @@ void TupServerWindow::manageCollaborators()
             }
         }
         updateCollaboratorsDisplay(projectId);
-        refreshProjectsList();
+        refreshProjectsList({});
     });
 
     // Remove collaborator logic
@@ -1851,7 +1886,7 @@ void TupServerWindow::manageCollaborators()
             }
         }
         updateCollaboratorsDisplay(projectId);
-        refreshProjectsList();
+        refreshProjectsList({});
     });
 
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Close);
@@ -1931,7 +1966,7 @@ void TupServerWindow::removeProject()
         }
 
         appendLog(tr("Project '%1' deleted successfully").arg(projectTitle), "INFO");
-        refreshProjectsList();
+        refreshProjectsList({});
         m_collaboratorsTable->setRowCount(0);
     } else {
         QMessageBox::critical(this, tr("Error"), tr("Failed to delete project from database"));
@@ -2169,59 +2204,39 @@ void TupServerWindow::refreshClassesList() {
     }
 }
 
-void TupServerWindow::refreshPeriodsList() {
-    m_periodsTable->setRowCount(0);
-    QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
-    for (const auto &p : periods) {
-        int row = m_periodsTable->rowCount();
-        m_periodsTable->insertRow(row);
-        m_periodsTable->setItem(row, 0, new QTableWidgetItem(QString::number(p.periodId)));
-        m_periodsTable->setItem(row, 1, new QTableWidgetItem(p.name));
-        m_periodsTable->setItem(row, 2, new QTableWidgetItem(QString::number(p.year)));
-        m_periodsTable->setItem(row, 3, new QTableWidgetItem(p.startDate + " - " + p.endDate));
-    }
-}
+void TupServerWindow::refreshProjectsList(const QString &filter)
+{
+    m_projectsTable->setRowCount(0);
+    m_collaboratorsTable->setRowCount(0);
 
-void TupServerWindow::onAddClass() {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Add Class"));
-    dialog.setMinimumWidth(360);
-    QFormLayout form(&dialog);
-    QLineEdit nameEdit, descEdit;
-    QComboBox yearCombo;
-    for (int y = 2026; y <= 2032; ++y) yearCombo.addItem(QString::number(y));
-    form.addRow(tr("Name:"), &nameEdit);
-    form.addRow(tr("Year:"), &yearCombo);
-    form.addRow(tr("Description:"), &descEdit);
-    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    form.addRow(&buttons);
-    QPushButton *okButton = buttons.button(QDialogButtonBox::Ok);
-    QLabel *warningLabel = new QLabel;
-    warningLabel->setStyleSheet("color: red");
-    form.addRow("", warningLabel);
-    auto validateForm = [&]() {
-        QString name = nameEdit.text().trimmed();
-        if (name.isEmpty()) {
-            warningLabel->setText(tr("Class name cannot be empty."));
-            okButton->setEnabled(false);
-        } else {
-            warningLabel->setText("");
-            okButton->setEnabled(true);
-        }
-    };
-    validateForm();
-    QObject::connect(&nameEdit, &QLineEdit::textChanged, &dialog, validateForm);
-    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() == QDialog::Accepted) {
-        QString name = nameEdit.text().trimmed();
-        int year = yearCombo.currentText().toInt();
-        if (m_dbHandler->addClass(name, year, descEdit.text().trimmed())) {
-            refreshClassesList();
-        } else {
-            QMessageBox::critical(this, tr("Error"), tr("Failed to add class. It may already exist or the input is invalid."));
-        }
+    if (!m_dbHandler) {
+        appendLog(tr("Database handler not initialized"), "ERROR");
+        return;
     }
+
+    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
+    int count = 0;
+    for (const DatabaseHandler::ProjectRecord &project : projects) {
+        // Filter by title, owner, or shared status
+        if (!filter.isEmpty()) {
+            QString sharedStr = project.isShared ? tr("Yes") : tr("No");
+            if (!project.title.contains(filter, Qt::CaseInsensitive) &&
+                !project.ownerStudentname.contains(filter, Qt::CaseInsensitive) &&
+                !sharedStr.contains(filter, Qt::CaseInsensitive)) {
+                continue;
+            }
+        }
+        int row = m_projectsTable->rowCount();
+        m_projectsTable->insertRow(row);
+        m_projectsTable->setItem(row, 0, new QTableWidgetItem(QString::number(project.projectId)));
+        m_projectsTable->setItem(row, 1, new QTableWidgetItem(project.title));
+        m_projectsTable->setItem(row, 2, new QTableWidgetItem(project.ownerStudentname));
+        m_projectsTable->setItem(row, 3, new QTableWidgetItem(project.isShared ? tr("Yes") : tr("No")));
+        m_projectsTable->setItem(row, 4, new QTableWidgetItem(project.createdAt));
+        ++count;
+    }
+    m_manageCollaboratorsButton->setEnabled(false);
+    appendLog(tr("Project list refreshed: %1 projects found").arg(count), "INFO");
 }
 
 void TupServerWindow::onEditClass() {
@@ -2292,8 +2307,10 @@ void TupServerWindow::onRemoveClass() {
 }
 
 void TupServerWindow::onAddPeriod() {
+    qDebug() << "[onAddPeriod] Called";
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Add Period"));
+    qDebug() << "[onAddPeriod] Dialog created";
     dialog.setMinimumWidth(360);
     QFormLayout form(&dialog);
     QLineEdit nameEdit;
@@ -2317,6 +2334,7 @@ void TupServerWindow::onAddPeriod() {
     dateWarning->setStyleSheet("color: red");
     form.addRow("", dateWarning);
     auto validateForm = [&]() {
+        qDebug() << "[onAddPeriod] Validating form: name=" << nameEdit.text() << ", start=" << startDateEdit.date() << ", end=" << endDateEdit.date();
         if (nameEdit.text().trimmed().isEmpty()) {
             dateWarning->setText(tr("Name cannot be empty."));
             okButton->setEnabled(false);
@@ -2334,13 +2352,21 @@ void TupServerWindow::onAddPeriod() {
     QObject::connect(&nameEdit, &QLineEdit::textChanged, &dialog, validateForm);
     connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() == QDialog::Accepted) {
+    int result = dialog.exec();
+    qDebug() << "[onAddPeriod] Dialog exec result:" << result;
+    if (result == QDialog::Accepted) {
         int year = yearCombo.currentText().toInt();
         QString startDateStr = startDateEdit.date().toString("yyyy-MM-dd");
         QString endDateStr = endDateEdit.date().toString("yyyy-MM-dd");
-        if (m_dbHandler->addPeriod(nameEdit.text(), year, startDateStr, endDateStr)) {
+        qDebug() << "[onAddPeriod] Accepted: name=" << nameEdit.text() << ", year=" << year << ", start=" << startDateStr << ", end=" << endDateStr;
+        bool added = m_dbHandler->addPeriod(nameEdit.text(), year, startDateStr, endDateStr);
+        qDebug() << "[onAddPeriod] addPeriod returned:" << added;
+        if (added) {
             refreshPeriodsList();
+            qDebug() << "[onAddPeriod] Period list refreshed.";
         }
+    } else {
+        qDebug() << "[onAddPeriod] Dialog canceled.";
     }
 }
 
@@ -2427,5 +2453,60 @@ void TupServerWindow::onRemovePeriod() {
         if (m_dbHandler->removePeriod(periodId)) {
             refreshPeriodsList();
         }
+    }
+}
+
+// --- Stub implementations to resolve linker errors ---
+void TupServerWindow::onAddClass() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Add Class"));
+    dialog.setMinimumWidth(360);
+    QFormLayout form(&dialog);
+    QLineEdit nameEdit, descEdit;
+    QComboBox yearCombo;
+    for (int y = 2026; y <= 2032; ++y) yearCombo.addItem(QString::number(y));
+    form.addRow(tr("Name:"), &nameEdit);
+    form.addRow(tr("Year:"), &yearCombo);
+    form.addRow(tr("Description:"), &descEdit);
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    form.addRow(&buttons);
+    QPushButton *okButton = buttons.button(QDialogButtonBox::Ok);
+    QLabel *warningLabel = new QLabel;
+    warningLabel->setStyleSheet("color: red");
+    form.addRow("", warningLabel);
+    auto validateForm = [&]() {
+        QString name = nameEdit.text().trimmed();
+        if (name.isEmpty()) {
+            warningLabel->setText(tr("Class name cannot be empty."));
+            okButton->setEnabled(false);
+        } else {
+            warningLabel->setText("");
+            okButton->setEnabled(true);
+        }
+    };
+    validateForm();
+    QObject::connect(&nameEdit, &QLineEdit::textChanged, &dialog, validateForm);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString name = nameEdit.text().trimmed();
+        int year = yearCombo.currentText().toInt();
+        if (m_dbHandler->addClass(name, year, descEdit.text().trimmed())) {
+            refreshClassesList();
+        } else {
+            QMessageBox::critical(this, tr("Error"), tr("Failed to add class. It may already exist or the input is invalid."));
+        }
+    }
+}
+void TupServerWindow::refreshPeriodsList() {
+    m_periodsTable->setRowCount(0);
+    QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
+    for (const auto &p : periods) {
+        int row = m_periodsTable->rowCount();
+        m_periodsTable->insertRow(row);
+        m_periodsTable->setItem(row, 0, new QTableWidgetItem(QString::number(p.periodId)));
+        m_periodsTable->setItem(row, 1, new QTableWidgetItem(p.name));
+        m_periodsTable->setItem(row, 2, new QTableWidgetItem(QString::number(p.year)));
+        m_periodsTable->setItem(row, 3, new QTableWidgetItem(p.startDate + " - " + p.endDate));
     }
 }

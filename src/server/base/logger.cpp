@@ -38,7 +38,9 @@
 #include <QDateTime>
 #include <QDebug>
 
-Logger *Logger::s_self = 0;
+
+Logger *Logger::s_self = nullptr;
+bool Logger::s_destroyed = false;
 
 Logger::Logger()
 {
@@ -54,13 +56,27 @@ Logger::Logger()
 
 Logger::~Logger()
 {
+    if (s_destroyed) return;
+#ifdef TUP_DEBUG
+    qDebug() << "[Logger::~Logger()] Destructor called. m_file.isOpen():" << m_file.isOpen() << ", fileName:" << m_file.fileName();
+#endif
+    if (m_file.isOpen()) {
+        m_file.close();
+#ifdef TUP_DEBUG
+        qDebug() << "[Logger::~Logger()] File closed in destructor.";
+#endif
+    }
+    m_file.setFileName("");
+    s_destroyed = true;
 }
 
 Logger *Logger::self()
 {
-    if (! s_self)
+    if (s_destroyed) {
+        return nullptr;
+    }
+    if (!s_self)
         s_self = new Logger;
-    
     return s_self;
 }
 
@@ -76,28 +92,70 @@ QString Logger::logFile() const
 
 void Logger::warn(const QString &log)
 {
-    write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [WARN] " + log + "\n").toLocal8Bit());
+    Logger *logger = Logger::self();
+    if (!logger) return;
+    logger->write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [WARN] " + log + "\n").toLocal8Bit());
 }
 
 void Logger::error(const QString &log)
 {
-    write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [ERROR] " + log + "\n").toLocal8Bit());
+    Logger *logger = Logger::self();
+    if (!logger) return;
+    logger->write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [ERROR] " + log + "\n").toLocal8Bit());
 }
 
 void Logger::info(const QString &log)
 {
-    write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [INFO] " + log + "\n").toLocal8Bit());
+    Logger *logger = Logger::self();
+    if (!logger) return;
+    logger->write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [INFO] " + log + "\n").toLocal8Bit());
 }
 
 void Logger::fatal(const QString &log)
 {
-    write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [FATAL] " + log + "\n").toLocal8Bit());
+    Logger *logger = Logger::self();
+    if (!logger) return;
+    logger->write("[" + QString(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "] [FATAL] " + log + "\n").toLocal8Bit());
 }
 
 void Logger::write(const QByteArray &msg)
 {
-    if (m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-        m_file.write(msg.data(), msg.size());
-        m_file.close();
+    if (!m_file.fileName().isEmpty()) {
+#ifdef TUP_DEBUG
+        qDebug() << "[Logger::write] About to open file:" << m_file.fileName()
+                 << "isOpen:" << m_file.isOpen()
+                 << "exists:" << QFile::exists(m_file.fileName());
+#endif
+        if (m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+#ifdef TUP_DEBUG
+            qDebug() << "[Logger::write] File opened successfully:" << m_file.fileName();
+#endif
+            m_file.write(msg.data(), msg.size());
+            m_file.close();
+#ifdef TUP_DEBUG
+            qDebug() << "[Logger::write] File closed:" << m_file.fileName();
+#endif
+        } else {
+#ifdef TUP_DEBUG
+            qDebug() << "[Logger::write] Failed to open log file:" << m_file.fileName() << ", error:" << m_file.errorString();
+#endif
+        }
+    } else {
+#ifdef TUP_DEBUG
+        qDebug() << "[Logger::write] m_file.fileName() is empty, skipping write.";
+#endif
     }
+}
+
+void Logger::reset()
+{
+    if (s_destroyed || !s_self) return;
+    if (s_self->m_file.isOpen()) {
+        s_self->m_file.close();
+    }
+    s_self->m_file.setFileName("");
+    Logger *toDelete = s_self;
+    s_self = nullptr;
+    s_destroyed = true;
+    delete toDelete;
 }

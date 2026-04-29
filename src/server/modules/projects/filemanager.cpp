@@ -84,7 +84,18 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
             return false;
     }
 
-    QString absolutePath = studentPath + "projects/" + filename + ".tup";
+    // Use project_id as a subfolder to avoid filename collisions
+    QString projectId = project->fileCode();
+    QString absolutePath = studentPath + "projects/" + projectId + "/" + filename + ".tup";
+    QDir projectDir(studentPath + "projects/" + projectId);
+    if (!projectDir.exists()) {
+        if (!projectDir.mkpath(projectDir.path())) {
+            #ifdef TUP_DEBUG
+                qDebug() << "[FileManager::save()] - Failed to create project_id directory!";
+            #endif
+            return false;
+        }
+    }
 
     // Ensure CACHE_DIR doesn't have trailing slash before adding uid
     QString cacheBase = CACHE_DIR;
@@ -215,7 +226,9 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    QString absolutePath = repoDir + "/students/" + uid + "/projects/" + filename + ".tup";
+    // Use project_id as a subfolder to avoid filename collisions
+    QString projectId = project->fileCode();
+    QString absolutePath = repoDir + "/students/" + uid + "/projects/" + projectId + "/" + filename + ".tup";
 
     #ifdef TUP_DEBUG
         qWarning() << "[FileManager::load()] - Loading project -> " << absolutePath;

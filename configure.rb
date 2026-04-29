@@ -35,7 +35,29 @@ begin
 
     conf.verifyQtVersion("5.0.0", "")
     
-    tupidir = File.expand_path(tupitube_dir)
+
+        tupidir = File.expand_path(tupitube_dir)
+
+        # Set PLUGINS_PATH in tests/tests.pro based on --with-tupitube-dir
+        tests_pro = File.join(File.dirname(__FILE__), "tests", "tests.pro")
+        plugins_path = File.join(tupidir, "lib", "tupitube", "plugins")
+
+        if File.exist?(tests_pro)
+            lines = File.readlines(tests_pro)
+            found = false
+            lines.map! do |line|
+                if line =~ /^PLUGINS_PATH\s*=/
+                    found = true
+                    "PLUGINS_PATH = #{plugins_path}\n"
+                else
+                    line
+                end
+            end
+            lines << "PLUGINS_PATH = #{plugins_path}\n" unless found
+            File.open(tests_pro, "w") { |f| f.write(lines.join) }
+        else
+            File.open(tests_pro, "a") { |f| f.puts "PLUGINS_PATH = #{plugins_path}" }
+        end
 
     config = RQonf::Config.new
     config.addModule("core")

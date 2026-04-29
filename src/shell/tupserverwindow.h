@@ -54,9 +54,11 @@
 #include <QFormLayout>
 #include <QDialogButtonBox>
 
+class TupitubeServerFeatureTest; // Forward declaration for test friend
 class TupServerWindow : public QMainWindow
 {
     Q_OBJECT
+    friend class TupitubeServerFeatureTest; // Allow test access to private/protected members
 
 public:
     TupServerWindow(QWidget *parent = nullptr);
@@ -87,7 +89,7 @@ private slots:
     void importUsersFromCsv();
 
     // Project collaboration slots
-    void refreshProjectsList();
+    void refreshProjectsList(const QString &filter = QString());
     void createProject();
     void manageCollaborators();
     void removeProject();
@@ -143,7 +145,7 @@ private:
     QPushButton *m_addPeriodButton;
     QPushButton *m_editPeriodButton;
     QPushButton *m_removePeriodButton;
-    QPushButton *m_refreshClassesButton;
+    // QPushButton *m_refreshClassesButton; removed
 
     // Status tab widgets
     QPushButton *m_toggleButton;
@@ -167,12 +169,12 @@ private:
 
     // Projects tab widgets
     QTableWidget *m_projectsTable;
+    QLineEdit *m_projectFilterEdit; // Filter for Projects
     QTableWidget *m_collaboratorsTable;
     QPushButton *m_createProjectButton;
     QPushButton *m_manageCollaboratorsButton;
     QPushButton *m_viewChatButton;
     QPushButton *m_removeProjectButton;
-    QPushButton *m_refreshProjectsButton;
 
     // Logs tab widgets
     QTextEdit *m_logView;
@@ -185,6 +187,7 @@ private:
     QLabel *m_databasePathLabel;
     QLabel *m_cachePathLabel;
     QLabel *m_projectsPathLabel;
+    QLabel *m_renderPathLabel;
     QComboBox *m_languageCombo;
     QComboBox *m_themeCombo;
     QPushButton *m_saveSettingsButton;

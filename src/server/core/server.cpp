@@ -64,7 +64,9 @@ TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
         qDebug() << "[TcpServer::TcpServer()]";
     #endif 
 
+    #ifndef TUPITUBE_TEST
     initDataBase();
+    #endif
 
     m_studentManager = new StudentManager(this);
     connect(m_studentManager, &StudentManager::studentConnected, this, &TcpServer::studentConnected);
@@ -87,28 +89,28 @@ TcpServer::~TcpServer()
 {
     m_db.close();
     Logger::self()->info("Server finished");
-    delete Settings::self();
-    delete Logger::self();
-    
+    Settings::reset();
+    Logger::reset();
     qDeleteAll(m_observers);
 }
 
 void TcpServer::initDataBase()
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::initDataBase()] - DB Drivers: " << QSqlDatabase::drivers();
-    #endif
-
     TCONFIG->beginGroup("Database");
     QString driver = TCONFIG->value("Driver").toString();
     m_db = QSqlDatabase::addDatabase(driver);
+
+    #ifdef TUP_DEBUG
+        qDebug() << "[TcpServer::initDataBase()] - Config file path:" << TCONFIG->configPath();
+        qDebug() << "[TcpServer::initDataBase()] - DB Drivers:" << QSqlDatabase::drivers();
+    #endif
 
     if (driver == "QSQLITE") {
         // SQLite: Get database path and name
         QString dbDir = TCONFIG->value("DatabasePath").toString();
         QString dbName = TCONFIG->value("DbName", "tupitube.db").toString();
         QString dbPath = dbDir + "/" + dbName;
-        
+
         // Create directory if it doesn't exist
         QDir dir(dbDir);
         if (!dir.exists()) {
@@ -120,9 +122,10 @@ void TcpServer::initDataBase()
                 exit(1);
             }
         }
-        
+
         #ifdef TUP_DEBUG
-            qDebug() << "[TcpServer::initDataBase()] - Database path:" << dbPath;
+            qDebug() << "[TcpServer::initDataBase()] - Using DB driver:" << driver;
+            qDebug() << "[TcpServer::initDataBase()] - Using DB path:" << dbPath;
         #endif
         m_db.setDatabaseName(dbPath);
     } else {
@@ -169,6 +172,7 @@ void TcpServer::initDataBase()
         }
     }
 
+
     // Check if tables exist, create them if not
     QStringList tables = m_db.tables();
     if (!tables.contains("tupitube_student")) {
@@ -176,6 +180,28 @@ void TcpServer::initDataBase()
             qDebug() << "[TcpServer::initDataBase()] - Creating database tables...";
         #endif
         createDatabaseSchema();
+    }
+
+    // Now that tables are created, check foreign key constraints only if the table exists
+    if (driver == "QSQLITE") {
+        QStringList tables = m_db.tables();
+        if (tables.contains("tupitube_project")) {
+            QSqlQuery fkQuery(m_db);
+            fkQuery.exec("PRAGMA foreign_key_list('tupitube_project')");
+            bool foundRestrict = false;
+            while (fkQuery.next()) {
+                QString from = fkQuery.value(3).toString(); // 'from' column
+                QString to = fkQuery.value(4).toString();   // 'to' column
+                QString onDelete = fkQuery.value(6).toString(); // 'on_delete' column
+                if (from == "student_id" && to == "student_id" && onDelete.toUpper() == "RESTRICT") {
+                    foundRestrict = true;
+                    break;
+                }
+            }
+            if (!foundRestrict) {
+                qWarning() << "[TcpServer::initDataBase()] - WARNING: Foreign key constraint on tupitube_project.student_id is not ON DELETE RESTRICT. Project ownership integrity is NOT enforced!";
+            }
+        }
     }
 
     TCONFIG->endGroup(); // Database
@@ -237,7 +263,7 @@ void TcpServer::createDatabaseSchema()
         #endif
     }
 
-    // Create tupitube_project table (updated: class_id, period_id, group_project)
+    // Create tupitube_project table (updated: render tracking fields)
     QString createProjectTable =
         "CREATE TABLE IF NOT EXISTS tupitube_project ("
         "project_id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -252,7 +278,8 @@ void TcpServer::createDatabaseSchema()
         "group_project INTEGER DEFAULT 0,"
         "created_at DATETIME DEFAULT (datetime('now')),"
         "updated_at DATETIME DEFAULT (datetime('now')),"
-        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id),"
+        "last_rendered_at DATETIME,"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,"
         "FOREIGN KEY (class_id) REFERENCES class(class_id),"
         "FOREIGN KEY (period_id) REFERENCES period(period_id)"
         ")";
@@ -324,7 +351,7 @@ void TcpServer::createDatabaseSchema()
         #endif
     }
 
-    // Create tupitube_work table
+    // Create tupitube_work table (updated: render tracking fields)
     QString createWorkTable =
         "CREATE TABLE IF NOT EXISTS tupitube_work ("
         "work_id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -347,6 +374,10 @@ void TcpServer::createDatabaseSchema()
         "mobile INTEGER DEFAULT 0,"
         "rendered INTEGER DEFAULT 0,"
         "uploaded INTEGER DEFAULT 0,"
+        "render_status VARCHAR(20) DEFAULT 'pending',"
+        "render_message TEXT,"
+        "render_output VARCHAR(255),"
+        "last_rendered_at DATETIME,"
         "created_at DATETIME DEFAULT (datetime('now')),"
         "updated_at DATETIME DEFAULT (datetime('now')),"
         "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id),"

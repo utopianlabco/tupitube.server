@@ -931,9 +931,22 @@ bool DatabaseHandler::createEmptyProject(const QString &title, const QString &de
 
     bool isShared = !collaboratorIds.isEmpty();
 
-    // For schema compliance, require class_id, period_id, group_project (default 0)
-    int classId = 1; // TODO: get actual class_id
-    // periodId is now passed as argument
+    // Look up the class_id for the owner student
+    int classId = -1;
+    {
+        QSqlQuery classQuery;
+        classQuery.prepare("SELECT class_id FROM tupitube_student WHERE student_id = ?");
+        classQuery.addBindValue(ownerId);
+        if (classQuery.exec() && classQuery.next()) {
+            classId = classQuery.value(0).toInt();
+        }
+    }
+    if (classId == -1) {
+        #ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::createEmptyProject()] - Could not find class_id for owner student:" << ownerId;
+        #endif
+        return false;
+    }
     int groupProject = isShared ? 1 : 0;
 
     QString sql = "INSERT INTO tupitube_project (title, description, student_id, filename, is_shared, class_id, period_id, group_project) VALUES (";

@@ -54,9 +54,11 @@ class Settings
         
     private:
         static Settings *s_settings;
-        
+        static bool s_destroyed;
         QString m_repositoryPath;
         QString m_backupPath;
+    public:
+        static void reset();
 };
 
 #endif

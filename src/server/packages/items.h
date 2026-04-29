@@ -32,22 +32,29 @@
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
-namespace Packages
-{
 
-class Items : public Package
-{
-    public:
-        Items();
-        ~Items();
-        
-        void appendItem(const QStringList&);
-        void addItem(const QString&);
-        void addItems(const QStringList&);
-        void setItems(const QStringList&);
-        
-    private:
-        QDomElement m_root;
+#ifndef PACKAGES_ITEMS_H
+#define PACKAGES_ITEMS_H
+
+#include <QString>
+#include <QStringList>
+#include <QDomElement>
+#include "package.h"
+
+namespace Packages {
+
+class Items : public Package {
+public:
+    Items();
+    ~Items();
+
+    void appendItem(const QStringList&);
+    void addItem(const QString&);
+    void addItems(const QStringList&);
+    void setItems(const QStringList&);
+
+private:
+    QDomElement m_root;
 };
 
 }

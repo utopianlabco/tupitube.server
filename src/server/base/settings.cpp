@@ -33,7 +33,8 @@
  ***************************************************************************/
 #include "settings.h"
 
-Settings *Settings::s_settings = 0;
+Settings *Settings::s_settings = nullptr;
+bool Settings::s_destroyed = false;
 
 Settings::Settings()
     : m_repositoryPath(), m_backupPath()
@@ -46,10 +47,19 @@ Settings::~Settings()
 
 Settings *Settings::self()
 {
-    if (! s_settings)
+    if (s_destroyed) return nullptr;
+    if (!s_settings)
         s_settings = new Settings();
-    
     return s_settings;
+}
+
+void Settings::reset()
+{
+    if (s_destroyed || !s_settings) return;
+    Settings *toDelete = s_settings;
+    s_settings = nullptr;
+    s_destroyed = true;
+    delete toDelete;
 }
 
 void Settings::setRepositoryPath(const QString &repository)

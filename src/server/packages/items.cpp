@@ -32,40 +32,43 @@
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
-namespace Packages
-{
-    
+#include "items.h"
+#include <QString>
+#include <QStringList>
+#include <QDomElement>
+#include <QDomDocument>
+#include <QtGlobal>
+
+namespace Packages {
+
 Items::Items()
- : Package()
-{
+    : Package() {
     m_root = createElement("items");
     m_root.setAttribute("version", "0");
     appendChild(m_root);
 }
 
-Items::~Items()
-{
-    
-}
+Items::~Items() {}
 
-void Items::addItem(const QString& item)
-{
+void Items::addItem(const QString& item) {
     m_root.appendChild(createElement("item")).appendChild(createTextNode(item));
 }
 
-void Items::addItems(const QStringList& items)
-{
-    foreach (const QString item, items)
-             addItem(item);
+void Items::addItems(const QStringList& items) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
+    for (const QString& item : items)
+        addItem(item);
+#else
+    foreach (const QString& item, items)
+        addItem(item);
+#endif
 }
 
-void Items::setItems( const QStringList& items)
-{
-    removeChild (m_root);
+void Items::setItems(const QStringList& items) {
+    removeChild(m_root);
     m_root = createElement("items");
-    m_root.setAttribute("version",  "0");
+    m_root.setAttribute("version", "0");
     appendChild(m_root);
-    
     addItems(items);
 }
 
