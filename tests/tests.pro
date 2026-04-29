@@ -65,7 +65,8 @@ SOURCES += ../src/shell/tupserverwindow.cpp \
 # HEADERS for MOC (Qt meta-object compiler)
 HEADERS += ../src/shell/tupserverwindow.h \
 			  ../src/server/base/observer.h \
-			  ../src/server/modules/communications/communicationmanager.h
+			  ../src/server/modules/communications/communicationmanager.h \
+			  tupitube_server_feature_test.h
 
 # Add all QObject-derived headers for MOC
 HEADERS += \
