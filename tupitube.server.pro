@@ -3,7 +3,7 @@
 # Subdir relative project main directory: .
 # Target is a subdirs project 
 
-SUBDIRS += src
+SUBDIRS += src tests
 TEMPLATE = subdirs
 
 # Add extra files to distclean

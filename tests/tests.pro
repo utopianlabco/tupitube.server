@@ -12,7 +12,8 @@ SOURCES += \
 SOURCES += \
 	../src/server/base/observer.cpp \
 	../src/server/modules/students/studentmanager.cpp
-QT += sql testlib
+QT += xml sql testlib
+# QT += core gui svg xml network
 SOURCES += \
 	../src/server/base/packagebase.cpp \
 	../src/server/modules/students/student.cpp
