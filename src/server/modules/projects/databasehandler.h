@@ -152,6 +152,7 @@ public:
             int periodId;
             QString periodName;
             bool groupProject;
+            QString lastRenderedAt; // empty if never rendered
         };
 
         QList<ProjectRecord> getAllProjects() const;
@@ -182,7 +183,34 @@ public:
         QList<ChatMessage> getChatHistory(int projectId = -1, int limit = 500) const;
         QList<ChatMessage> getChatHistoryByDate(const QString &fromDate, const QString &toDate) const;
         bool clearChatHistory(int projectId = -1);
-        
+
+        // Render support (used by ProjectRenderer)
+        struct RenderProjectInfo
+        {
+            bool found;
+            int studentId;
+            QString filename;
+            QString title;
+        };
+
+        RenderProjectInfo getProjectRenderInfo(int projectId) const;
+        bool updateProjectLastRendered(int projectId);
+
+        // Grade management (teacher assigns grade per project)
+        struct GradeInfo
+        {
+            bool found;
+            int gradeId;
+            double grade;
+            QString comments;
+            QString updatedAt;
+        };
+
+        bool saveGrade(int projectId, int studentId, int teacherStudentId,
+                       int periodId, int classId, double grade,
+                       const QString &comments);
+        GradeInfo getGrade(int projectId, int studentId) const;
+
     private:
         QString incomingFolderID(const QString &uid, const QString &type) const;
         QString worksPublicPolicy(const QString &owner) const;

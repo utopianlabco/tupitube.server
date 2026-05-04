@@ -9,11 +9,13 @@ CONFIG += release warn_on
 TEMPLATE = app
 
 HEADERS += tupserverwindow.h \
-           tservertheme.h
+           tservertheme.h \
+           firstlaunchwizard.h
            
 SOURCES += main.cpp \
            tupserverwindow.cpp \
-           tservertheme.cpp
+           tservertheme.cpp \
+           firstlaunchwizard.cpp
            
 RESOURCES += resources.qrc
 

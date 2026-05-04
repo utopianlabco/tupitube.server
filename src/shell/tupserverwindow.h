@@ -36,6 +36,8 @@
 
 #include "server.h"
 #include "databasehandler.h"
+#include "projectrenderer.h"
+#include "firstlaunchwizard.h"
 
 #include <QMainWindow>
 #include <QSystemTrayIcon>
@@ -96,6 +98,11 @@ private slots:
     void onProjectSelectionChanged();
     void viewProjectChat();
     void sendBroadcastMessage();
+
+    // Render and grade slots
+    void renderProject();
+    void watchProject();
+    void gradeProject();
 
     // Classes tab slots
     void refreshClassesList();
@@ -175,6 +182,11 @@ private:
     QPushButton *m_manageCollaboratorsButton;
     QPushButton *m_viewChatButton;
     QPushButton *m_removeProjectButton;
+    QPushButton *m_renderProjectButton;
+    QPushButton *m_watchProjectButton;
+    QPushButton *m_gradeProjectButton;
+
+    ProjectRenderer *m_projectRenderer;
 
     // Logs tab widgets
     QTextEdit *m_logView;

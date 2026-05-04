@@ -44,6 +44,7 @@ include(../tupitube_config.pri)
 
 SOURCES += ../src/shell/tupserverwindow.cpp \
 			  ../src/shell/tservertheme.cpp \
+			  ../src/shell/firstlaunchwizard.cpp \
 			  ../src/server/base/logger.cpp \
 			  ../src/server/core/connection.cpp \
 			  ../src/server/core/server.cpp \
@@ -65,6 +66,7 @@ SOURCES += ../src/shell/tupserverwindow.cpp \
 
 # HEADERS for MOC (Qt meta-object compiler)
 HEADERS += ../src/shell/tupserverwindow.h \
+			  ../src/shell/firstlaunchwizard.h \
 			  ../src/server/base/observer.h \
 			  ../src/server/modules/communications/communicationmanager.h \
 			  tupitube_server_feature_test.h
@@ -82,3 +84,6 @@ HEADERS += \
 # Ensure LIBS from main config are included
 LIBS += -L/usr/local/quazip/lib -lquazip1-qt5 -L/usr/local/ffmpeg/lib -lavformat -lavcodec -lavutil -lswscale
 LIBS += -L../src/server/modules/projects -lprojects
+
+# Ensure runtime linker finds libtuputils.so.1
+QMAKE_LFLAGS += -Wl,-rpath,$$PWD/../src/lib -Wl,-rpath,$$PWD/../src/server/modules/projects

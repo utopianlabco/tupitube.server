@@ -38,6 +38,12 @@
 #include "tapplicationproperties.h"
 #include "filemanager.h"
 #include "talgorithm.h"
+#include "projectrenderer.h"
+#include "firstlaunchwizard.h"
+
+#include <QDesktopServices>
+#include <QUrl>
+#include <QProgressDialog>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -98,7 +104,9 @@ static QStringList getLocalIPAddresses()
 }
 
 TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
-    m_server(nullptr), m_serverRunning(false), m_dbHandler(nullptr)
+    m_server(nullptr), m_serverRunning(false), m_dbHandler(nullptr),
+    m_renderProjectButton(nullptr), m_watchProjectButton(nullptr),
+    m_gradeProjectButton(nullptr), m_projectRenderer(nullptr)
 {
     setWindowTitle(tr("TupiTube Server"));
     setWindowIcon(QIcon(":/icons/tupitube_server.png"));
@@ -106,6 +114,7 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
 
     m_server = new TcpServer(this);
     m_dbHandler = new DatabaseHandler();
+    m_projectRenderer = new ProjectRenderer(m_dbHandler, this);
 
     // Connect server signals
     connect(m_server, &TcpServer::connectionCountChanged, this, &TupServerWindow::onConnectionCountChanged);
@@ -135,6 +144,47 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     m_uptimeTimer->start(1000);
 
     appendLog(tr("TupiTube Server GUI initialized"), "INFO");
+
+    // --- First launch detection ---
+    bool firstLaunch = TCONFIG->value("FirstLaunch", true).toBool();
+    if (firstLaunch) {
+        FirstLaunchWizard wizard(this);
+        if (wizard.exec() == QDialog::Accepted) {
+            // Retrieve data from wizard fields
+            QString className = wizard.field("className").toString();
+            QString periodName = wizard.field("periodName").toString();
+            QString studentName = wizard.field("studentName").toString();
+
+            // 1. Create Class (use current year, empty description)
+            int year = QDate::currentDate().year();
+            bool classOk = m_dbHandler->addClass(className, year, "");
+
+            // 2. Create Period (use current year, today as start/end)
+            QString today = QDate::currentDate().toString("yyyy-MM-dd");
+            bool periodOk = m_dbHandler->addPeriod(periodName, year, today, today);
+
+            // 3. Create Student (use class name, student name as both username and name, default password, enabled/creator true)
+            QString password = "changeme"; // Default password, should be changed by user later
+            bool studentOk = m_dbHandler->addStudent(studentName, studentName, password, true, true, className);
+
+            appendLog(tr("First launch setup complete: Class '%1' (%2), Period '%3', Student '%4' [%5/%6/%7]")
+                      .arg(className)
+                      .arg(year)
+                      .arg(periodName)
+                      .arg(studentName)
+                      .arg(classOk ? "OK" : "FAIL")
+                      .arg(periodOk ? "OK" : "FAIL")
+                      .arg(studentOk ? "OK" : "FAIL"), "INFO");
+            TCONFIG->setValue("FirstLaunch", false);
+            TCONFIG->sync();
+            // Refresh UI tables so new class/period appear
+            refreshClassesList();
+            refreshPeriodsList();
+        } else {
+            // If wizard is cancelled, quit the app
+            QApplication::quit();
+        }
+    }
 }
 
 TupServerWindow::~TupServerWindow()
@@ -491,13 +541,17 @@ void TupServerWindow::setupProjectsTab()
         refreshProjectsList(text);
     });
 
-    m_projectsTable = new QTableWidget(0, 5);
-    m_projectsTable->setHorizontalHeaderLabels({tr("ID"), tr("Title"), tr("Owner"), tr("Shared"), tr("Created")});
+    m_projectsTable = new QTableWidget(0, 7);
+    m_projectsTable->setHorizontalHeaderLabels({tr("ID"), tr("Title"), tr("Owner"), tr("Shared"), tr("Rendered"), tr("Grade"), tr("Created")});
     m_projectsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_projectsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed); // Title
     m_projectsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed); // Shared
+    m_projectsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed); // Rendered
+    m_projectsTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed); // Grade
     m_projectsTable->setColumnWidth(1, 220); // Title column wider
-    m_projectsTable->setColumnWidth(3, 60);  // Shared column slightly wider
+    m_projectsTable->setColumnWidth(3, 60);  // Shared column
+    m_projectsTable->setColumnWidth(4, 80);  // Rendered column
+    m_projectsTable->setColumnWidth(5, 60);  // Grade column
     m_projectsTable->horizontalHeader()->setStretchLastSection(true);
     m_projectsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_projectsTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -536,6 +590,27 @@ void TupServerWindow::setupProjectsTab()
     m_removeProjectButton->setEnabled(false);
     connect(m_removeProjectButton, &QPushButton::clicked, this, &TupServerWindow::removeProject);
     projectButtonLayout->addWidget(m_removeProjectButton);
+
+    m_renderProjectButton = new QPushButton(tr("Render"));
+    m_renderProjectButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_renderProjectButton->setEnabled(false);
+    m_renderProjectButton->setToolTip(tr("Render selected project to MP4"));
+    connect(m_renderProjectButton, &QPushButton::clicked, this, &TupServerWindow::renderProject);
+    projectButtonLayout->addWidget(m_renderProjectButton);
+
+    m_watchProjectButton = new QPushButton(tr("Watch"));
+    m_watchProjectButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+    m_watchProjectButton->setEnabled(false);
+    m_watchProjectButton->setToolTip(tr("Open rendered MP4 in default video player"));
+    connect(m_watchProjectButton, &QPushButton::clicked, this, &TupServerWindow::watchProject);
+    projectButtonLayout->addWidget(m_watchProjectButton);
+
+    m_gradeProjectButton = new QPushButton(tr("Grade"));
+    m_gradeProjectButton->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
+    m_gradeProjectButton->setEnabled(false);
+    m_gradeProjectButton->setToolTip(tr("Assign a grade to this project"));
+    connect(m_gradeProjectButton, &QPushButton::clicked, this, &TupServerWindow::gradeProject);
+    projectButtonLayout->addWidget(m_gradeProjectButton);
 
     projectButtonLayout->addStretch();
 
@@ -1492,11 +1567,18 @@ void TupServerWindow::onProjectSelectionChanged()
     m_manageCollaboratorsButton->setEnabled(hasSelection);
     m_viewChatButton->setEnabled(hasSelection);
     m_removeProjectButton->setEnabled(hasSelection);
+    m_renderProjectButton->setEnabled(hasSelection);
+    m_gradeProjectButton->setEnabled(hasSelection);
 
     if (hasSelection) {
+        // Enable Watch only if already rendered (column 4 != "No")
+        QString renderedText = m_projectsTable->item(currentRow, 4)->text();
+        m_watchProjectButton->setEnabled(renderedText != tr("No"));
+
         int projectId = m_projectsTable->item(currentRow, 0)->text().toInt();
         updateCollaboratorsDisplay(projectId);
     } else {
+        m_watchProjectButton->setEnabled(false);
         m_collaboratorsTable->setRowCount(0);
     }
 }
@@ -1520,6 +1602,18 @@ void TupServerWindow::updateCollaboratorsDisplay(int projectId)
 
 void TupServerWindow::createProject()
 {
+    // Check if there are any students in the database
+    QList<DatabaseHandler::StudentInfo> students = m_dbHandler->getAllStudents();
+    if (students.isEmpty()) {
+        QMessageBox::warning(this, tr("No Users Found"),
+            tr("You must create at least one user before creating a project.\n\nPlease add a user in the Students tab first."));
+        // Switch to Students tab (index 3)
+        if (m_tabWidget) m_tabWidget->setCurrentIndex(3);
+        // Open the Add Student dialog
+        QTimer::singleShot(0, this, SLOT(addStudent()));
+        return;
+    }
+
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Create New Project"));
     dialog.setMinimumWidth(550);
@@ -1552,10 +1646,8 @@ void TupServerWindow::createProject()
     fpsSpin->setValue(12);
     formLayout->addRow(tr("FPS:"), fpsSpin);
 
-
     // Owner selection
     QComboBox *ownerCombo = new QComboBox();
-    QList<DatabaseHandler::StudentInfo> students = m_dbHandler->getAllStudents();
     for (const DatabaseHandler::StudentInfo &student : students) {
         if (student.isEnabled && student.isCreator) {
             ownerCombo->addItem(student.studentname + " (" + student.name + ")", student.studentId);
@@ -2232,10 +2324,26 @@ void TupServerWindow::refreshProjectsList(const QString &filter)
         m_projectsTable->setItem(row, 1, new QTableWidgetItem(project.title));
         m_projectsTable->setItem(row, 2, new QTableWidgetItem(project.ownerStudentname));
         m_projectsTable->setItem(row, 3, new QTableWidgetItem(project.isShared ? tr("Yes") : tr("No")));
-        m_projectsTable->setItem(row, 4, new QTableWidgetItem(project.createdAt));
+
+        // Render status column
+        QString renderedText = project.lastRenderedAt.isEmpty() ? tr("No") : tr("Yes");
+        QTableWidgetItem *renderedItem = new QTableWidgetItem(renderedText);
+        if (!project.lastRenderedAt.isEmpty())
+            renderedItem->setForeground(QColor("#27ae60"));
+        m_projectsTable->setItem(row, 4, renderedItem);
+
+        // Grade column
+        DatabaseHandler::GradeInfo gradeInfo = m_dbHandler->getGrade(project.projectId, project.ownerId);
+        QString gradeText = gradeInfo.found ? QString::number(gradeInfo.grade, 'f', 1) : tr("-");
+        m_projectsTable->setItem(row, 5, new QTableWidgetItem(gradeText));
+
+        m_projectsTable->setItem(row, 6, new QTableWidgetItem(project.createdAt));
         ++count;
     }
     m_manageCollaboratorsButton->setEnabled(false);
+    if (m_renderProjectButton) m_renderProjectButton->setEnabled(false);
+    if (m_watchProjectButton)  m_watchProjectButton->setEnabled(false);
+    if (m_gradeProjectButton)  m_gradeProjectButton->setEnabled(false);
     appendLog(tr("Project list refreshed: %1 projects found").arg(count), "INFO");
 }
 
@@ -2508,5 +2616,138 @@ void TupServerWindow::refreshPeriodsList() {
         m_periodsTable->setItem(row, 1, new QTableWidgetItem(p.name));
         m_periodsTable->setItem(row, 2, new QTableWidgetItem(QString::number(p.year)));
         m_periodsTable->setItem(row, 3, new QTableWidgetItem(p.startDate + " - " + p.endDate));
+    }
+}
+
+// === Render / Watch / Grade slots ===
+
+void TupServerWindow::renderProject()
+{
+    int row = m_projectsTable->currentRow();
+    if (row < 0) return;
+
+    int projectId = m_projectsTable->item(row, 0)->text().toInt();
+    QString title  = m_projectsTable->item(row, 1)->text();
+
+    QProgressDialog progress(tr("Rendering \"%1\"...").arg(title), QString(), 0, 0, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    progress.show();
+    QApplication::processEvents();
+
+    ProjectRenderer::RenderResult result = m_projectRenderer->renderProject(projectId);
+    progress.close();
+
+    if (result.success) {
+        appendLog(tr("Project '%1' rendered successfully: %2").arg(title, result.mp4Path), "INFO");
+        refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
+        m_watchProjectButton->setEnabled(true);
+        QMessageBox::information(this, tr("Render Complete"),
+            tr("Project \"%1\" rendered successfully.\n\nFile: %2").arg(title, result.mp4Path));
+    } else {
+        appendLog(tr("Render failed for '%1': %2").arg(title, result.errorMessage), "ERROR");
+        QMessageBox::critical(this, tr("Render Failed"),
+            tr("Failed to render \"%1\":\n\n%2").arg(title, result.errorMessage));
+    }
+}
+
+void TupServerWindow::watchProject()
+{
+    int row = m_projectsTable->currentRow();
+    if (row < 0) return;
+
+    int projectId = m_projectsTable->item(row, 0)->text().toInt();
+    DatabaseHandler::RenderProjectInfo info = m_dbHandler->getProjectRenderInfo(projectId);
+    if (!info.found) {
+        QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project information."));
+        return;
+    }
+
+    TCONFIG->beginGroup("Render");
+    QString renderPath = TCONFIG->value("RenderPath").toString();
+    TCONFIG->endGroup();
+
+    QString mp4Path = renderPath + "/" + QString::number(info.studentId) + "/" + info.filename + ".mp4";
+    if (!QFile::exists(mp4Path)) {
+        QMessageBox::warning(this, tr("File Not Found"),
+            tr("MP4 file not found:\n%1\n\nPlease render the project first.").arg(mp4Path));
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(mp4Path));
+}
+
+void TupServerWindow::gradeProject()
+{
+    int row = m_projectsTable->currentRow();
+    if (row < 0) return;
+
+    int projectId = m_projectsTable->item(row, 0)->text().toInt();
+    QString title = m_projectsTable->item(row, 1)->text();
+
+    // Retrieve full project record to get ownerId, periodId, classId
+    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
+    DatabaseHandler::ProjectRecord record;
+    bool found = false;
+    for (const auto &p : projects) {
+        if (p.projectId == projectId) {
+            record = p;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project data."));
+        return;
+    }
+
+    // Load existing grade if any
+    DatabaseHandler::GradeInfo existing = m_dbHandler->getGrade(projectId, record.ownerId);
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Grade Project: %1").arg(title));
+    dialog.setMinimumWidth(380);
+
+    QFormLayout *form = new QFormLayout(&dialog);
+
+    QLabel *ownerLabel = new QLabel(record.ownerStudentname);
+    form->addRow(tr("Student:"), ownerLabel);
+
+    QDoubleSpinBox *gradeSpinBox = new QDoubleSpinBox();
+    gradeSpinBox->setRange(0.0, 10.0);
+    gradeSpinBox->setSingleStep(0.5);
+    gradeSpinBox->setDecimals(1);
+    gradeSpinBox->setValue(existing.found ? existing.grade : 0.0);
+    form->addRow(tr("Grade (0–10):"), gradeSpinBox);
+
+    QTextEdit *commentsEdit = new QTextEdit();
+    commentsEdit->setPlaceholderText(tr("Optional comments..."));
+    commentsEdit->setMaximumHeight(100);
+    if (existing.found)
+        commentsEdit->setPlainText(existing.comments);
+    form->addRow(tr("Comments:"), commentsEdit);
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    double grade    = gradeSpinBox->value();
+    QString comments = commentsEdit->toPlainText().trimmed();
+
+    // teacherStudentId: 0 means the server/admin teacher (can be updated later)
+    bool ok = m_dbHandler->saveGrade(projectId, record.ownerId, 0,
+                                     record.periodId, record.classId,
+                                     grade, comments);
+    if (ok) {
+        appendLog(tr("Grade %.1f saved for project '%2' (student: %3)")
+                      .arg(grade).arg(title).arg(record.ownerStudentname), "INFO");
+        refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
+    } else {
+        QMessageBox::critical(this, tr("Error"), tr("Failed to save grade."));
+        appendLog(tr("Failed to save grade for project '%1'").arg(title), "ERROR");
     }
 }
