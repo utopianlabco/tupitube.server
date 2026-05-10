@@ -114,6 +114,9 @@ private slots:
     void onEditPeriod();
     void onRemovePeriod();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private:
     void setupClassesTab();
     void setupUI();

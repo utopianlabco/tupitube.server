@@ -42,6 +42,167 @@ DatabaseHandler::DatabaseHandler()
 {
 }
 
+void DatabaseHandler::createDatabaseSchema()
+{
+    QSqlDatabase db = QSqlDatabase::database();
+    QSqlQuery query(db);
+
+    // Create class table
+    QString createClassTable =
+        "CREATE TABLE IF NOT EXISTS class ("
+        "class_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "name VARCHAR(50) NOT NULL,"
+        "year INTEGER NOT NULL,"
+        "description TEXT"
+        ")";
+    query.exec(createClassTable);
+
+    // Create period table
+    QString createPeriodTable =
+        "CREATE TABLE IF NOT EXISTS period ("
+        "period_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "name VARCHAR(50) NOT NULL,"
+        "year INTEGER NOT NULL,"
+        "start_date DATE,"
+        "end_date DATE"
+        ")";
+    query.exec(createPeriodTable);
+
+    // Create tupitube_student table (updated: uses class_id)
+    QString createStudentTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_student ("
+        "student_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "name VARCHAR(100),"
+        "studentname VARCHAR(50) NOT NULL UNIQUE,"
+        "password VARCHAR(255) NOT NULL,"
+        "is_enabled INTEGER DEFAULT 1,"
+        "is_creator INTEGER DEFAULT 1,"
+        "projects_public_policy INTEGER DEFAULT 0,"
+        "files_public_policy INTEGER DEFAULT 0,"
+        "works_public_policy INTEGER DEFAULT 0,"
+        "class_id INTEGER NOT NULL,"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "updated_at DATETIME DEFAULT (datetime('now')),"
+        "FOREIGN KEY (class_id) REFERENCES class(class_id)"
+        ")";
+    query.exec(createStudentTable);
+
+    // Create tupitube_project table (updated: render tracking fields)
+    QString createProjectTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_project ("
+        "project_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "title VARCHAR(100) NOT NULL,"
+        "description TEXT,"
+        "student_id INTEGER NOT NULL,"
+        "filename VARCHAR(255) NOT NULL,"
+        "is_public INTEGER DEFAULT 0,"
+        "is_shared INTEGER DEFAULT 0,"
+        "class_id INTEGER NOT NULL,"
+        "period_id INTEGER NOT NULL,"
+        "group_project INTEGER DEFAULT 0,"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "updated_at DATETIME DEFAULT (datetime('now')),"
+        "last_rendered_at DATETIME,"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,"
+        "FOREIGN KEY (class_id) REFERENCES class(class_id),"
+        "FOREIGN KEY (period_id) REFERENCES period(period_id)"
+        ")";
+    query.exec(createProjectTable);
+
+    // Create project_student join table
+    QString createProjectStudentTable =
+        "CREATE TABLE IF NOT EXISTS project_student ("
+        "project_id INTEGER NOT NULL,"
+        "student_id INTEGER NOT NULL,"
+        "PRIMARY KEY (project_id, student_id),"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id)"
+        ")";
+    query.exec(createProjectStudentTable);
+
+    // Create tupitube_chat table
+    QString createChatTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_chat ("
+        "chat_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "project_id INTEGER,"
+        "student_id INTEGER NOT NULL,"
+        "studentname VARCHAR(50) NOT NULL,"
+        "message TEXT NOT NULL,"
+        "message_type VARCHAR(20) DEFAULT 'chat',"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT"
+        ");";
+    query.exec(createChatTable);
+
+    // Create tupitube_collection table
+    QString createCollectionTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_collection ("
+        "collection_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "parent_id INTEGER,"
+        "type VARCHAR(20),"
+        "title VARCHAR(100),"
+        "topics TEXT,"
+        "description TEXT,"
+        "student_id INTEGER NOT NULL,"
+        "is_public INTEGER DEFAULT 0,"
+        "visits INTEGER DEFAULT 0,"
+        "likes INTEGER DEFAULT 0,"
+        "project_id INTEGER,"
+        "path VARCHAR(255),"
+        "slug VARCHAR(100),"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "updated_at DATETIME DEFAULT (datetime('now')),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id),"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),"
+        "FOREIGN KEY (parent_id) REFERENCES tupitube_collection(collection_id)"
+        ")";
+    query.exec(createCollectionTable);
+
+    // Create tupitube_work table
+    QString createWorkTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_work ("
+        "work_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "project_id INTEGER,"
+        "collection_id INTEGER,"
+        "type_id INTEGER,"
+        "type VARCHAR(20),"
+        "title VARCHAR(100),"
+        "content TEXT,"
+        "topics TEXT,"
+        "tags TEXT,"
+        "description TEXT,"
+        "student_id INTEGER,"
+        "filename VARCHAR(255),"
+        "is_public INTEGER DEFAULT 0,"
+        "enabled INTEGER DEFAULT 1,"
+        "visits INTEGER DEFAULT 0,"
+        "duration INTEGER DEFAULT 0,"
+        "portrait INTEGER DEFAULT 0,"
+        "mobile INTEGER DEFAULT 0,"
+        "rendered INTEGER DEFAULT 0,"
+        "uploaded INTEGER DEFAULT 0,"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "updated_at DATETIME DEFAULT (datetime('now')),"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),"
+        "FOREIGN KEY (collection_id) REFERENCES tupitube_collection(collection_id),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id)"
+        ")";
+    query.exec(createWorkTable);
+
+    // Create tupitube_collaboration table
+    QString createCollaborationTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_collaboration ("
+        "collaboration_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "project_id INTEGER NOT NULL,"
+        "student_id INTEGER NOT NULL,"
+        "permission_level INTEGER DEFAULT 1,"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id)"
+        ")";
+    query.exec(createCollaborationTable);
+}
+
 DatabaseHandler::~DatabaseHandler()
 {
 }

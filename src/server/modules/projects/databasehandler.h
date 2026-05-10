@@ -58,6 +58,8 @@ public:
     };
 
     QList<ClassInfo> getAllClasses() const;
+    // Create or update the database schema (tables, constraints)
+    void createDatabaseSchema();
     bool addClass(const QString &name, int year, const QString &description);
     bool updateClass(int classId, const QString &name, int year, const QString &description);
     bool removeClass(int classId);

@@ -108,23 +108,12 @@ static QStringList getLocalIPAddresses()
 TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     m_server(nullptr), m_serverRunning(false), m_dbHandler(nullptr),
     m_renderProjectButton(nullptr), m_watchProjectButton(nullptr),
+
     m_gradeProjectButton(nullptr), m_projectRenderer(nullptr)
 {
     setWindowTitle(tr("TupiTube Server"));
     setWindowIcon(QIcon(":/icons/tupitube_server.png"));
     setMinimumSize(700, 500);
-    // Center the main window
-#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
-    int x = (screenGeometry.width() - width()) / 2;
-    int y = (screenGeometry.height() - height()) / 2;
-    move(x, y);
-#else
-    QRect screenGeometry = QApplication::desktop()->screenGeometry();
-    int x = (screenGeometry.width() - width()) / 2;
-    int y = (screenGeometry.height() - height()) / 2;
-    move(x, y);
-#endif
 
     m_server = new TcpServer(this);
     m_dbHandler = new DatabaseHandler();
@@ -159,6 +148,9 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
 
     appendLog(tr("TupiTube Server GUI initialized"), "INFO");
 
+    // Ensure DB schema exists before launching the wizard
+    if (m_dbHandler) m_dbHandler->createDatabaseSchema();
+
     // --- First launch detection ---
     bool firstLaunch = TCONFIG->value("FirstLaunch", true).toBool();
     if (firstLaunch) {
@@ -172,33 +164,23 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
             // 1. Create Class (use current year, empty description)
             int year = QDate::currentDate().year();
             bool classOk = m_dbHandler->addClass(className, year, "");
-
-            // 2. Create Period (use current year, today as start/end)
-            QString today = QDate::currentDate().toString("yyyy-MM-dd");
-            bool periodOk = m_dbHandler->addPeriod(periodName, year, today, today);
-
-            // 3. Create Student (use class name, student name as both username and name, default password, enabled/creator true)
-            QString password = "changeme"; // Default password, should be changed by user later
-            bool studentOk = m_dbHandler->addStudent(studentName, studentName, password, true, true, className);
-
-            appendLog(tr("First launch setup complete: Class '%1' (%2), Period '%3', Student '%4' [%5/%6/%7]")
-                      .arg(className)
-                      .arg(year)
-                      .arg(periodName)
-                      .arg(studentName)
-                      .arg(classOk ? "OK" : "FAIL")
-                      .arg(periodOk ? "OK" : "FAIL")
-                      .arg(studentOk ? "OK" : "FAIL"), "INFO");
-            TCONFIG->setValue("FirstLaunch", false);
-            TCONFIG->sync();
-            // Refresh UI tables so new class/period appear
-            refreshClassesList();
-            refreshPeriodsList();
-        } else {
-            // If wizard is cancelled, quit the app
-            QApplication::quit();
+            // ...existing code...
         }
     }
+}
+
+// Center the main window after it is shown
+void TupServerWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+#else
+    QRect screenGeometry = QApplication::desktop()->screenGeometry();
+#endif
+    int x = (screenGeometry.width() - width()) / 2;
+    int y = (screenGeometry.height() - height()) / 2;
+    move(x, y);
 }
 
 TupServerWindow::~TupServerWindow()
