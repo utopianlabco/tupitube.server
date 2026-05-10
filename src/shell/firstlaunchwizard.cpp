@@ -66,39 +66,70 @@ public:
 };
 
 // --- Student Page ---
-class StudentPage : public QWizardPage {
-public:
-    StudentPage(QWidget *parent = nullptr) : QWizardPage(parent) {
-        setTitle("Create Student");
-        QFormLayout *layout = new QFormLayout;
-        studentUsernameEdit = new QLineEdit;
-        studentFullNameEdit = new QLineEdit;
-        studentPasswordEdit = new QLineEdit;
-        studentPasswordEdit->setEchoMode(QLineEdit::Password);
-        isCreatorCheck = new QCheckBox("Is Creator");
-        isCreatorCheck->setChecked(true);
-        studentClassEdit = new QLineEdit;
-        studentClassEdit->setReadOnly(true); // Will be set from class page after wizard is constructed
-        layout->addRow("Username:", studentUsernameEdit);
-        layout->addRow("Full Name:", studentFullNameEdit);
-        layout->addRow("Password:", studentPasswordEdit);
-        layout->addRow("Class:", studentClassEdit);
-        layout->addRow(isCreatorCheck);
-        setLayout(layout);
-        registerField("studentUsername*", studentUsernameEdit);
-        registerField("studentFullName*", studentFullNameEdit);
-        registerField("studentPassword", studentPasswordEdit);
-        // Always enabled by default, do not show checkbox
-        registerField("studentIsEnabled", new QWidget, "visible", "visible"); // dummy, not used
-        registerField("studentIsCreator", isCreatorCheck);
-        registerField("studentClass", studentClassEdit);
-    }
-    QLineEdit *studentUsernameEdit;
-    QLineEdit *studentFullNameEdit;
-    QLineEdit *studentPasswordEdit;
-    QCheckBox *isCreatorCheck;
-    QLineEdit *studentClassEdit;
-};
+
+#include "firstlaunchwizard.h"
+#include <QFormLayout>
+
+
+StudentPage::StudentPage(QWidget *parent) : QWizardPage(parent) {
+    setTitle("Create Student");
+    QFormLayout *layout = new QFormLayout;
+    studentUsernameEdit = new QLineEdit;
+    studentFullNameEdit = new QLineEdit;
+    studentPasswordEdit = new QLineEdit;
+    studentPasswordEdit->setEchoMode(QLineEdit::Password);
+    studentConfirmPasswordEdit = new QLineEdit;
+    studentConfirmPasswordEdit->setEchoMode(QLineEdit::Password);
+    isCreatorCheck = new QCheckBox("Is Creator");
+    isCreatorCheck->setChecked(true);
+    studentClassEdit = new QLineEdit;
+    studentClassEdit->setReadOnly(true); // Will be set from class page after wizard is constructed
+    passwordMismatchLabel = new QLabel;
+    passwordMismatchLabel->setStyleSheet("color: red");
+    passwordMismatchLabel->setVisible(false);
+    layout->addRow("Username:", studentUsernameEdit);
+    layout->addRow("Full Name:", studentFullNameEdit);
+    layout->addRow("Password:", studentPasswordEdit);
+    layout->addRow("Confirm Password:", studentConfirmPasswordEdit);
+    layout->addRow(passwordMismatchLabel);
+    layout->addRow("Class:", studentClassEdit);
+    layout->addRow(isCreatorCheck);
+    setLayout(layout);
+    registerField("studentUsername*", studentUsernameEdit);
+    registerField("studentFullName*", studentFullNameEdit);
+    registerField("studentPassword", studentPasswordEdit);
+    // Always enabled by default, do not show checkbox
+    registerField("studentIsEnabled", new QWidget, "visible", "visible"); // dummy, not used
+    registerField("studentIsCreator", isCreatorCheck);
+    registerField("studentClass", studentClassEdit);
+
+    // Connect signals to update completeness
+    connect(studentUsernameEdit, &QLineEdit::textChanged, this, &StudentPage::onFieldChanged);
+    connect(studentFullNameEdit, &QLineEdit::textChanged, this, &StudentPage::onFieldChanged);
+    connect(studentPasswordEdit, &QLineEdit::textChanged, this, &StudentPage::onFieldChanged);
+    connect(studentConfirmPasswordEdit, &QLineEdit::textChanged, this, &StudentPage::onFieldChanged);
+    connect(studentClassEdit, &QLineEdit::textChanged, this, &StudentPage::onFieldChanged);
+}
+
+bool StudentPage::isComplete() const {
+    bool allFilled = !studentUsernameEdit->text().isEmpty()
+        && !studentFullNameEdit->text().isEmpty()
+        && !studentPasswordEdit->text().isEmpty()
+        && !studentConfirmPasswordEdit->text().isEmpty()
+        && !studentClassEdit->text().isEmpty();
+    bool passwordsMatch = studentPasswordEdit->text() == studentConfirmPasswordEdit->text();
+    return allFilled && passwordsMatch;
+}
+
+void StudentPage::onFieldChanged() {
+    // Show/hide password mismatch label
+    bool showMismatch = !studentPasswordEdit->text().isEmpty()
+        && !studentConfirmPasswordEdit->text().isEmpty()
+        && studentPasswordEdit->text() != studentConfirmPasswordEdit->text();
+    passwordMismatchLabel->setVisible(showMismatch);
+    passwordMismatchLabel->setText(showMismatch ? "Passwords do not match" : "");
+    emit completeChanged();
+}
 
 // --- FirstLaunchWizard Implementation ---
 FirstLaunchWizard::FirstLaunchWizard(QWidget *parent) : QWizard(parent) {
