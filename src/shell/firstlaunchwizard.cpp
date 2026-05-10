@@ -1,5 +1,42 @@
+/***************************************************************************
+ *   Project TupiTube Server                                               *
+ *   Project Contact: info@tupitube.com                                    *
+ *   Project Website: http://www.tupitube.com                              *
+ *                                                                         *
+ *   Developers:                                                           *
+ *   2025:                                                                 *
+ *    Utopian Lab Development Team                                         *
+ *   2010:                                                                 *
+ *    Gustav Gonzalez                                                      *
+ *   ---                                                                   *
+ *   KTooN's versions:                                                     *
+ *   2006:                                                                 *
+ *    David Cuadrado                                                       *
+ *    Jorge Cuadrado                                                       *
+ *   2003:                                                                 *
+ *    Fernado Roldan                                                       *
+ *    Simena Dinas                                                         *
+ *                                                                         *
+ *   License:                                                              *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
 
 #include "firstlaunchwizard.h"
+
+#include <QScreen>
+#include <QApplication>
+#include <QShowEvent>
 #include <QWizardPage>
 #include <QVBoxLayout>
 #include <QLabel>
@@ -10,6 +47,7 @@
 #include <QSpinBox>
 #include <QDateEdit>
 #include <QCheckBox>
+#include <QDebug>
 
 // --- Class Page ---
 class ClassPage : public QWizardPage {
@@ -66,10 +104,6 @@ public:
 };
 
 // --- Student Page ---
-
-#include "firstlaunchwizard.h"
-#include <QFormLayout>
-
 
 StudentPage::StudentPage(QWidget *parent) : QWizardPage(parent) {
     setTitle("Create Student");
@@ -158,10 +192,6 @@ FirstLaunchWizard::FirstLaunchWizard(QWidget *parent) : QWizard(parent) {
     setButton(QWizard::BackButton, backBtn);
 }
 
-#include <QScreen>
-#include <QApplication>
-#include <QShowEvent>
-
 void FirstLaunchWizard::showEvent(QShowEvent *event) {
     QWizard::showEvent(event);
     // Center the wizard on the primary screen
@@ -172,4 +202,13 @@ void FirstLaunchWizard::showEvent(QShowEvent *event) {
         int y = screenGeometry.y() + (screenGeometry.height() - height()) / 2;
         move(x, y);
     }
+}
+
+FirstLaunchWizard::~FirstLaunchWizard() {
+    qDebug() << "[FirstLaunchWizard] Destructor called.";
+}
+
+void FirstLaunchWizard::reject() {
+    qDebug() << "[FirstLaunchWizard] reject() called. Dialog will close with Rejected.";
+    QWizard::reject();
 }
