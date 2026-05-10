@@ -56,6 +56,8 @@
 #include <QAction>
 #include <QMenuBar>
 #include <QApplication>
+#include <QScreen>
+#include <QGuiApplication>
 #include <QStyle>
 #include <QTimer>
 #include <QDateTime>
@@ -111,6 +113,18 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     setWindowTitle(tr("TupiTube Server"));
     setWindowIcon(QIcon(":/icons/tupitube_server.png"));
     setMinimumSize(700, 500);
+    // Center the main window
+#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+    int x = (screenGeometry.width() - width()) / 2;
+    int y = (screenGeometry.height() - height()) / 2;
+    move(x, y);
+#else
+    QRect screenGeometry = QApplication::desktop()->screenGeometry();
+    int x = (screenGeometry.width() - width()) / 2;
+    int y = (screenGeometry.height() - height()) / 2;
+    move(x, y);
+#endif
 
     m_server = new TcpServer(this);
     m_dbHandler = new DatabaseHandler();
@@ -478,7 +492,7 @@ void TupServerWindow::setupStudentsTab()
     });
 
     m_registeredStudentsTable = new QTableWidget(0, 6);
-    m_registeredStudentsTable->setHorizontalHeaderLabels({tr("ID"), tr("Student Name"), tr("Name"), tr("Class"), tr("Enabled"), tr("Creator")});
+    m_registeredStudentsTable->setHorizontalHeaderLabels({tr("ID"), tr("Username"), tr("Full Name"), tr("Class"), tr("Enabled"), tr("Creator")});
     m_registeredStudentsTable->horizontalHeader()->setStretchLastSection(true);
     m_registeredStudentsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_registeredStudentsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
