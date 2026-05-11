@@ -211,4 +211,5 @@ FirstLaunchWizard::~FirstLaunchWizard() {
 void FirstLaunchWizard::reject() {
     qDebug() << "[FirstLaunchWizard] reject() called. Dialog will close with Rejected.";
     QWizard::reject();
+    emit wizardCanceled();
 }

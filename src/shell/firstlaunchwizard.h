@@ -65,6 +65,8 @@ public:
 protected:
     void showEvent(QShowEvent *event) override;
     void reject() override;
+signals:
+    void wizardCanceled();
 };
 
 #endif // FIRSTLAUNCHWIZARD_H

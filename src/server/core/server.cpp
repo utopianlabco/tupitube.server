@@ -65,8 +65,8 @@ TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
     #endif 
 
     #ifndef TUPITUBE_TEST
-    initDataBase();
-    #endif
+         initDataBase();
+     #endif
 
     m_studentManager = new StudentManager(this);
     connect(m_studentManager, &StudentManager::studentConnected, this, &TcpServer::studentConnected);
@@ -81,8 +81,6 @@ TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
 
     m_communicationManager = new CommunicationManager;
     m_observers << m_communicationManager;
-
-
 }
 
 TcpServer::~TcpServer()
@@ -139,7 +137,6 @@ void TcpServer::initDataBase()
             m_db.setConnectOptions("MYSQL_OPT_RECONNECT=1");
     }
 
-
     bool ok = m_db.open();
     if (!ok) {
         QSqlError error = m_db.lastError();
@@ -149,6 +146,7 @@ void TcpServer::initDataBase()
         #endif
         exit(1);
     }
+
     // Enforce foreign key constraints for SQLite and check schema
     if (driver == "QSQLITE") {
         QSqlQuery pragmaQuery(m_db);
@@ -171,7 +169,6 @@ void TcpServer::initDataBase()
             qWarning() << "[TcpServer::initDataBase()] - WARNING: Foreign key constraint on tupitube_project.student_id is not ON DELETE RESTRICT. Project ownership integrity is NOT enforced!";
         }
     }
-
 
     // Check if tables exist, create them if not
     // (Schema creation is now handled by DatabaseHandler in TupServerWindow)
@@ -281,8 +278,6 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
                qDebug() << "[TcpServer::incomingConnection()] - Fatal Error: while setting connection";
         #endif
     }
-  
-
 }
 
 void TcpServer::handle(Connection *connection)
@@ -374,6 +369,4 @@ void TcpServer::handlePackage(Connection* client, const QString &root, const QSt
     } else if (root.startsWith("communication_")) {
         m_communicationManager->handlePackage(pkg);
     }
-
-    // delete pkg;
 }

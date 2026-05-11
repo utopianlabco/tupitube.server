@@ -38,6 +38,7 @@
 
 #include <QString>
 #include <QtSql>
+#include <QSqlDatabase>
 
 class DatabaseHandler
 {
@@ -59,6 +60,7 @@ public:
 
     QList<ClassInfo> getAllClasses() const;
     // Create or update the database schema (tables, constraints)
+    void initDataBase();
     void createDatabaseSchema();
     bool addClass(const QString &name, int year, const QString &description);
     bool updateClass(int classId, const QString &name, int year, const QString &description);
@@ -68,8 +70,8 @@ public:
     bool addPeriod(const QString &name, int year, const QString &startDate, const QString &endDate);
     bool updatePeriod(int periodId, const QString &name, int year, const QString &startDate, const QString &endDate);
     bool removePeriod(int periodId);
-    public:
 
+    public:
         struct ProjectInfo
         {
             QString title;
@@ -214,6 +216,7 @@ public:
         GradeInfo getGrade(int projectId, int studentId) const;
 
     private:
+        QSqlDatabase db;
         QString incomingFolderID(const QString &uid, const QString &type) const;
         QString worksPublicPolicy(const QString &owner) const;
         QString projectKey(const QString &filename) const;

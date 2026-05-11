@@ -39,7 +39,7 @@
 #include "filemanager.h"
 #include "talgorithm.h"
 #include "projectrenderer.h"
-#include "firstlaunchwizard.h"
+// #include "firstlaunchwizard.h"
 
 #include <QDesktopServices>
 #include <QUrl>
@@ -117,6 +117,7 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
 
     m_server = new TcpServer(this);
     m_dbHandler = new DatabaseHandler();
+
     m_projectRenderer = new ProjectRenderer(m_dbHandler, this);
 
     // Connect server signals
@@ -149,8 +150,9 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     appendLog(tr("TupiTube Server GUI initialized"), "INFO");
 
     // Ensure DB schema exists before launching the wizard
-    if (m_dbHandler) m_dbHandler->createDatabaseSchema();
+    // if (m_dbHandler) m_dbHandler->createDatabaseSchema();
 
+    /*
     // --- First launch detection ---
     bool firstLaunch = TCONFIG->value("FirstLaunch", true).toBool();
     if (firstLaunch) {
@@ -167,6 +169,7 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
             // ...existing code...
         }
     }
+    */
 }
 
 // Center the main window after it is shown

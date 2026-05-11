@@ -81,7 +81,7 @@ class TcpServer : public QTcpServer
     
     private:
         void initDataBase();
-        void createDatabaseSchema();
+        // void createDatabaseSchema();
         void handle(Connection *connection);
 
         // bool verifyPassword(const QString &login, const QString &password);

@@ -32,19 +32,127 @@
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 #include "databasehandler.h"
+#include "tconfig.h"
 
 #include <QDomDocument>
 #include <QFile>
 #include <QTextStream>
 #include <QDebug>
+#include <QDir>
 
 DatabaseHandler::DatabaseHandler()
 {
 }
 
+void DatabaseHandler::initDataBase()
+{
+    TCONFIG->beginGroup("Database");
+    QString driver = TCONFIG->value("Driver").toString();
+    db = QSqlDatabase::addDatabase(driver);
+
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::initDataBase()] - Config file path:" << TCONFIG->configPath();
+        qDebug() << "[DatabaseHandler::initDataBase()] - DB Drivers:" << QSqlDatabase::drivers();
+    #endif
+
+    if (driver == "QSQLITE") {
+        // SQLite: Get database path and name
+        QString dbDir = TCONFIG->value("DatabasePath").toString();
+        QString dbName = TCONFIG->value("DbName", "tupitube.db").toString();
+        QString dbPath = dbDir + "/" + dbName;
+
+        // Create directory if it doesn't exist
+        QDir dir(dbDir);
+        if (!dir.exists()) {
+            #ifdef TUP_DEBUG
+                qDebug() << "[DatabaseHandler::initDataBase()] - Creating database directory:" << dbDir;
+            #endif
+            if (!dir.mkpath(".")) {
+                qCritical() << "[DatabaseHandler::initDataBase()] - Failed to create database directory:" << dbDir;
+                exit(1);
+            }
+        }
+
+        #ifdef TUP_DEBUG
+            qDebug() << "[DatabaseHandler::initDataBase()] - Using DB driver:" << driver;
+            qDebug() << "[DatabaseHandler::initDataBase()] - Using DB path:" << dbPath;
+        #endif
+        db.setDatabaseName(dbPath);
+    } else {
+        // MySQL/PostgreSQL: use host, port, credentials
+        db.setHostName(TCONFIG->value("Host").toString());
+        db.setPort(TCONFIG->value("Port").toInt());
+        db.setDatabaseName(TCONFIG->value("DbName").toString());
+        db.setUserName(TCONFIG->value("Student").toString());
+        db.setPassword(TCONFIG->value("Password").toString());
+        if (driver == "QMYSQL")
+            db.setConnectOptions("MYSQL_OPT_RECONNECT=1");
+    }
+
+    bool ok = db.open();
+    if (!ok) {
+        QSqlError error = db.lastError();
+        #ifdef TUP_DEBUG
+               qDebug() << "[DatabaseHandler::initDataBase()] - Fatal Error: Cannot connect to DB server...";
+               qDebug() << "[DatabaseHandler::initDataBase()] - Description: " << error.text();
+        #endif
+        exit(1);
+    }
+
+    // Enforce foreign key constraints for SQLite and check schema
+    if (driver == "QSQLITE") {
+        QSqlQuery pragmaQuery(db);
+        pragmaQuery.exec("PRAGMA foreign_keys = ON;");
+
+        // Check that the foreign key constraint on tupitube_project.student_id is ON DELETE RESTRICT
+        QSqlQuery fkQuery(db);
+        fkQuery.exec("PRAGMA foreign_key_list('tupitube_project')");
+        bool foundRestrict = false;
+        while (fkQuery.next()) {
+            QString from = fkQuery.value(3).toString(); // 'from' column
+            QString to = fkQuery.value(4).toString();   // 'to' column
+            QString onDelete = fkQuery.value(6).toString(); // 'on_delete' column
+            if (from == "student_id" && to == "student_id" && onDelete.toUpper() == "RESTRICT") {
+                foundRestrict = true;
+                break;
+            }
+        }
+        if (!foundRestrict) {
+            qWarning() << "[DatabaseHandler::initDataBase()] - WARNING: Foreign key constraint on tupitube_project.student_id is not ON DELETE RESTRICT. Project ownership integrity is NOT enforced!";
+        }
+    }
+
+    // Check if tables exist, create them if not
+    // (Schema creation is now handled by DatabaseHandler in TupServerWindow)
+
+    // Now that tables are created, check foreign key constraints only if the table exists
+    if (driver == "QSQLITE") {
+        QStringList tables = db.tables();
+        if (tables.contains("tupitube_project")) {
+            QSqlQuery fkQuery(db);
+            fkQuery.exec("PRAGMA foreign_key_list('tupitube_project')");
+            bool foundRestrict = false;
+            while (fkQuery.next()) {
+                QString from = fkQuery.value(3).toString(); // 'from' column
+                QString to = fkQuery.value(4).toString();   // 'to' column
+                QString onDelete = fkQuery.value(6).toString(); // 'on_delete' column
+                if (from == "student_id" && to == "student_id" && onDelete.toUpper() == "RESTRICT") {
+                    foundRestrict = true;
+                    break;
+                }
+            }
+            if (!foundRestrict) {
+                qWarning() << "[DatabaseHandler::initDataBase()] - WARNING: Foreign key constraint on tupitube_project.student_id is not ON DELETE RESTRICT. Project ownership integrity is NOT enforced!";
+            }
+        }
+    }
+
+    TCONFIG->endGroup(); // Database
+}
+
 void DatabaseHandler::createDatabaseSchema()
 {
-    QSqlDatabase db = QSqlDatabase::database();
+    // QSqlDatabase db = QSqlDatabase::database();
     QSqlQuery query(db);
 
     // Create class table
