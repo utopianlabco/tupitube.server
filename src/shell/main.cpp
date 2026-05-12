@@ -317,9 +317,13 @@ int main(int argc, char *argv[])
         bool studentIsCreator = wizard.field("studentIsCreator").toBool();
         QString studentClass = wizard.field("studentClass").toString();
 
+        QCryptographicHash md5(QCryptographicHash::Md5);
+        md5.addData(studentPassword.toUtf8());
+        QString hashedPassword = md5.result().toHex();
+
         bool classOk = m_dbHandler->addClass(className, classYear, classDesc);
         bool periodOk = m_dbHandler->addPeriod(periodName, periodYear, periodStartDate.toString("yyyy-MM-dd"), periodEndDate.toString("yyyy-MM-dd"));
-        bool studentOk = m_dbHandler->addStudent(studentUsername, studentFullName, studentPassword, true, studentIsCreator, studentClass);
+        bool studentOk = m_dbHandler->addStudent(studentUsername, studentFullName, hashedPassword, true, studentIsCreator, studentClass);
 
         qDebug() << "[main.cpp] addClass result:" << classOk;
         qDebug() << "[main.cpp] addPeriod result:" << periodOk;
