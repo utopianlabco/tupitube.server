@@ -157,7 +157,7 @@ void DatabaseHandler::createDatabaseSchema()
 
     // Create class table
     QString createClassTable =
-        "CREATE TABLE IF NOT EXISTS class ("
+        "CREATE TABLE IF NOT EXISTS tupitube_class ("
         "class_id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "name VARCHAR(50) NOT NULL,"
         "year INTEGER NOT NULL,"
@@ -219,7 +219,7 @@ void DatabaseHandler::createDatabaseSchema()
 
     // Create project_student join table
     QString createProjectStudentTable =
-        "CREATE TABLE IF NOT EXISTS project_student ("
+        "CREATE TABLE IF NOT EXISTS tupitube_project_student ("
         "project_id INTEGER NOT NULL,"
         "student_id INTEGER NOT NULL,"
         "PRIMARY KEY (project_id, student_id),"
@@ -431,7 +431,7 @@ bool DatabaseHandler::addProject(const NetProject *project)
         }
         for (int studentId : studentIds) {
             QSqlQuery psQuery;
-            QString psSql = QString("INSERT INTO project_student (project_id, student_id) VALUES (%1, %2)").arg(projectId).arg(studentId);
+            QString psSql = QString("INSERT INTO tupitube_project_student (project_id, student_id) VALUES (%1, %2)").arg(projectId).arg(studentId);
             psQuery.exec(psSql);
         }
     }
