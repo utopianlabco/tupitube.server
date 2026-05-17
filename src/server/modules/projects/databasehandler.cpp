@@ -167,7 +167,7 @@ void DatabaseHandler::createDatabaseSchema()
 
     // Create period table
     QString createPeriodTable =
-        "CREATE TABLE IF NOT EXISTS period ("
+        "CREATE TABLE IF NOT EXISTS tupitube_period ("
         "period_id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "name VARCHAR(50) NOT NULL,"
         "year INTEGER NOT NULL,"
@@ -191,7 +191,7 @@ void DatabaseHandler::createDatabaseSchema()
         "class_id INTEGER NOT NULL,"
         "created_at DATETIME DEFAULT (datetime('now')),"
         "updated_at DATETIME DEFAULT (datetime('now')),"
-        "FOREIGN KEY (class_id) REFERENCES class(class_id)"
+        "FOREIGN KEY (class_id) REFERENCES tupitube_class(class_id)"
         ")";
     query.exec(createStudentTable);
 
@@ -212,8 +212,8 @@ void DatabaseHandler::createDatabaseSchema()
         "updated_at DATETIME DEFAULT (datetime('now')),"
         "last_rendered_at DATETIME,"
         "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,"
-        "FOREIGN KEY (class_id) REFERENCES class(class_id),"
-        "FOREIGN KEY (period_id) REFERENCES period(period_id)"
+        "FOREIGN KEY (class_id) REFERENCES tupitube_class(class_id),"
+        "FOREIGN KEY (period_id) REFERENCES tupitube_period(period_id)"
         ")";
     query.exec(createProjectTable);
 
@@ -675,8 +675,8 @@ QList< DatabaseHandler::ProjectInfo> DatabaseHandler::studentProjects(int studen
     QList<DatabaseHandler::ProjectInfo> list;
     QString sql = "SELECT p.title, p.description, p.filename, p.created_at, p.class_id, c.name, p.period_id, per.name, p.group_project "
                   "FROM tupitube_project p "
-                  "LEFT JOIN class c ON p.class_id = c.class_id "
-                  "LEFT JOIN period per ON p.period_id = per.period_id "
+                  "LEFT JOIN tupitube_class c ON p.class_id = c.class_id "
+                  "LEFT JOIN tupitube_period per ON p.period_id = per.period_id "
                   "WHERE p.student_id=" + QString::number(studentID) + " ORDER BY p.created_at DESC";
     QSqlQuery query(sql);
     while (query.next()) {
@@ -883,7 +883,7 @@ QList<DatabaseHandler::StudentInfo> DatabaseHandler::getAllStudents() const
     #endif
 
     QList<StudentInfo> students;
-    QString sql = "SELECT u.student_id, u.name, u.class_id, c.name as class_name, u.studentname, u.password, u.is_enabled, u.is_creator FROM tupitube_student u LEFT JOIN class c ON u.class_id = c.class_id ORDER BY u.studentname";
+    QString sql = "SELECT u.student_id, u.name, u.class_id, c.name as class_name, u.studentname, u.password, u.is_enabled, u.is_creator FROM tupitube_student u LEFT JOIN tupitube_class c ON u.class_id = c.class_id ORDER BY u.studentname";
     QSqlQuery query(sql);
 
     int rowCount = 0;
@@ -923,14 +923,14 @@ bool DatabaseHandler::addStudent(const QString &studentname, const QString &name
     // studentClass is now expected to be the class name; look up class_id
     int classId = -1;
     QSqlQuery classQuery;
-    classQuery.prepare("SELECT class_id FROM class WHERE name = ?");
+    classQuery.prepare("SELECT class_id FROM tupitube_class WHERE name = ?");
     classQuery.addBindValue(studentClass);
     if (classQuery.exec() && classQuery.next()) {
         classId = classQuery.value(0).toInt();
     } else {
         // Optionally, insert the class if it doesn't exist
         QSqlQuery insertClass;
-        insertClass.prepare("INSERT INTO class (name, year) VALUES (?, strftime('%Y', 'now'))");
+        insertClass.prepare("INSERT INTO tupitube_class (name, year) VALUES (?, strftime('%Y', 'now'))");
         insertClass.addBindValue(studentClass);
         if (insertClass.exec()) {
             classId = insertClass.lastInsertId().toInt();
@@ -967,14 +967,14 @@ bool DatabaseHandler::updateStudent(int studentId, const QString &studentname, c
     // studentClass is now expected to be the class name; look up class_id
     int classId = -1;
     QSqlQuery classQuery;
-    classQuery.prepare("SELECT class_id FROM class WHERE name = ?");
+    classQuery.prepare("SELECT class_id FROM tupitube_class WHERE name = ?");
     classQuery.addBindValue(studentClass);
     if (classQuery.exec() && classQuery.next()) {
         classId = classQuery.value(0).toInt();
     } else {
         // Optionally, insert the class if it doesn't exist
         QSqlQuery insertClass;
-        insertClass.prepare("INSERT INTO class (name, year) VALUES (?, strftime('%Y', 'now'))");
+        insertClass.prepare("INSERT INTO tupitube_class (name, year) VALUES (?, strftime('%Y', 'now'))");
         insertClass.addBindValue(studentClass);
         if (insertClass.exec()) {
             classId = insertClass.lastInsertId().toInt();
@@ -1059,8 +1059,8 @@ QList<DatabaseHandler::ProjectRecord> DatabaseHandler::getAllProjects() const
                   "p.last_rendered_at "
                   "FROM tupitube_project p "
                   "LEFT JOIN tupitube_student u ON p.student_id = u.student_id "
-                  "LEFT JOIN class c ON p.class_id = c.class_id "
-                  "LEFT JOIN period per ON p.period_id = per.period_id "
+                  "LEFT JOIN tupitube_class c ON p.class_id = c.class_id "
+                  "LEFT JOIN tupitube_period per ON p.period_id = per.period_id "
                   "ORDER BY p.created_at DESC";
     QSqlQuery query(sql);
     while (query.next()) {
@@ -1435,7 +1435,7 @@ bool DatabaseHandler::clearChatHistory(int projectId)
 // === Class and Period Management ===
 QList<DatabaseHandler::ClassInfo> DatabaseHandler::getAllClasses() const {
     QList<ClassInfo> list;
-    QSqlQuery query("SELECT class_id, name, year, description FROM class ORDER BY year DESC, name ASC");
+    QSqlQuery query("SELECT class_id, name, year, description FROM tupitube_class ORDER BY year DESC, name ASC");
     while (query.next()) {
         ClassInfo c;
         c.classId = query.value(0).toInt();
@@ -1449,7 +1449,7 @@ QList<DatabaseHandler::ClassInfo> DatabaseHandler::getAllClasses() const {
 
 bool DatabaseHandler::addClass(const QString &name, int year, const QString &description) {
     QSqlQuery query;
-    query.prepare("INSERT INTO class (name, year, description) VALUES (?, ?, ?)");
+    query.prepare("INSERT INTO tupitube_class (name, year, description) VALUES (?, ?, ?)");
     query.addBindValue(name);
     query.addBindValue(year);
     query.addBindValue(description);
@@ -1458,7 +1458,7 @@ bool DatabaseHandler::addClass(const QString &name, int year, const QString &des
 
 bool DatabaseHandler::updateClass(int classId, const QString &name, int year, const QString &description) {
     QSqlQuery query;
-    query.prepare("UPDATE class SET name=?, year=?, description=? WHERE class_id=?");
+    query.prepare("UPDATE tupitube_class SET name=?, year=?, description=? WHERE class_id=?");
     query.addBindValue(name);
     query.addBindValue(year);
     query.addBindValue(description);
@@ -1468,14 +1468,14 @@ bool DatabaseHandler::updateClass(int classId, const QString &name, int year, co
 
 bool DatabaseHandler::removeClass(int classId) {
     QSqlQuery query;
-    query.prepare("DELETE FROM class WHERE class_id=?");
+    query.prepare("DELETE FROM tupitube_class WHERE class_id=?");
     query.addBindValue(classId);
     return query.exec();
 }
 
 QList<DatabaseHandler::PeriodInfo> DatabaseHandler::getAllPeriods() const {
     QList<PeriodInfo> list;
-    QSqlQuery query("SELECT period_id, name, year, start_date, end_date FROM period ORDER BY year DESC, name ASC");
+    QSqlQuery query("SELECT period_id, name, year, start_date, end_date FROM tupitube_period ORDER BY year DESC, name ASC");
     while (query.next()) {
         PeriodInfo p;
         p.periodId = query.value(0).toInt();
@@ -1490,7 +1490,7 @@ QList<DatabaseHandler::PeriodInfo> DatabaseHandler::getAllPeriods() const {
 
 bool DatabaseHandler::addPeriod(const QString &name, int year, const QString &startDate, const QString &endDate) {
     QSqlQuery query;
-    query.prepare("INSERT INTO period (name, year, start_date, end_date) VALUES (?, ?, ?, ?)");
+    query.prepare("INSERT INTO tupitube_period (name, year, start_date, end_date) VALUES (?, ?, ?, ?)");
     query.addBindValue(name);
     query.addBindValue(year);
     query.addBindValue(startDate);
@@ -1500,7 +1500,7 @@ bool DatabaseHandler::addPeriod(const QString &name, int year, const QString &st
 
 bool DatabaseHandler::updatePeriod(int periodId, const QString &name, int year, const QString &startDate, const QString &endDate) {
     QSqlQuery query;
-    query.prepare("UPDATE period SET name=?, year=?, start_date=?, end_date=? WHERE period_id=?");
+    query.prepare("UPDATE tupitube_period SET name=?, year=?, start_date=?, end_date=? WHERE period_id=?");
     query.addBindValue(name);
     query.addBindValue(year);
     query.addBindValue(startDate);
@@ -1511,7 +1511,7 @@ bool DatabaseHandler::updatePeriod(int periodId, const QString &name, int year, 
 
 bool DatabaseHandler::removePeriod(int periodId) {
     QSqlQuery query;
-    query.prepare("DELETE FROM period WHERE period_id=?");
+    query.prepare("DELETE FROM tupitube_period WHERE period_id=?");
     query.addBindValue(periodId);
     return query.exec();
 }

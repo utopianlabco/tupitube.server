@@ -6,7 +6,7 @@
 PRAGMA foreign_keys=on;
 
 -- Class table
-CREATE TABLE IF NOT EXISTS class (
+CREATE TABLE IF NOT EXISTS tupitube_class (
     class_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(50) NOT NULL,         -- e.g., '7B'
     year INTEGER NOT NULL,             -- e.g., 2026
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS class (
 );
 
 -- Period table
-CREATE TABLE IF NOT EXISTS period (
+CREATE TABLE IF NOT EXISTS tupitube_period (
     period_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(50) NOT NULL,         -- e.g., 'Semester 1'
     year INTEGER NOT NULL,             -- e.g., 2026
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS tupitube_student (
     class_id INTEGER NOT NULL,
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
-    FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT
+    FOREIGN KEY (class_id) REFERENCES tupitube_class(class_id) ON DELETE RESTRICT
 );
 
 -- Project table
@@ -55,12 +55,12 @@ CREATE TABLE IF NOT EXISTS tupitube_project (
     updated_at DATETIME DEFAULT (datetime('now')),
     last_rendered_at DATETIME, -- Timestamp of last successful render
     FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
-    FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT,
-    FOREIGN KEY (period_id) REFERENCES period(period_id) ON DELETE RESTRICT
+    FOREIGN KEY (class_id) REFERENCES tupitube_class(class_id) ON DELETE RESTRICT,
+    FOREIGN KEY (period_id) REFERENCES tupitube_period(period_id) ON DELETE RESTRICT
 );
 
 -- Project-Student join table (for group projects)
-CREATE TABLE IF NOT EXISTS project_student (
+CREATE TABLE IF NOT EXISTS tupitube_project_student (
     project_id INTEGER NOT NULL,
     student_id INTEGER NOT NULL,
     PRIMARY KEY (project_id, student_id),
@@ -150,8 +150,8 @@ CREATE TABLE IF NOT EXISTS tupitube_grade (
     FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
     FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
     FOREIGN KEY (teacher_student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
-    FOREIGN KEY (period_id) REFERENCES period(period_id) ON DELETE RESTRICT,
-    FOREIGN KEY (class_id) REFERENCES class(class_id) ON DELETE RESTRICT,
+    FOREIGN KEY (period_id) REFERENCES tupitube_period(period_id) ON DELETE RESTRICT,
+    FOREIGN KEY (class_id) REFERENCES tupitube_class(class_id) ON DELETE RESTRICT,
     UNIQUE (project_id, student_id, teacher_student_id, period_id, class_id)
 );
 

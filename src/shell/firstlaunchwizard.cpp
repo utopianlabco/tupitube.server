@@ -85,22 +85,53 @@ public:
         periodYearSpin->setValue(QDate::currentDate().year());
         startDateEdit = new QDateEdit(QDate::currentDate());
         startDateEdit->setCalendarPopup(true);
-        endDateEdit = new QDateEdit(QDate::currentDate());
+        endDateEdit = new QDateEdit(QDate::currentDate().addMonths(1));
         endDateEdit->setCalendarPopup(true);
+        errorLabel = new QLabel;
+        errorLabel->setStyleSheet("color: red");
+        errorLabel->setVisible(false);
         layout->addRow("Period Name:", periodNameEdit);
         layout->addRow("Year:", periodYearSpin);
         layout->addRow("Start Date:", startDateEdit);
         layout->addRow("End Date:", endDateEdit);
+        layout->addRow(errorLabel);
         setLayout(layout);
         registerField("periodName*", periodNameEdit);
         registerField("periodYear", periodYearSpin);
         registerField("periodStartDate", startDateEdit);
         registerField("periodEndDate", endDateEdit);
+
+        connect(startDateEdit, &QDateEdit::dateChanged, this, &PeriodPage::onDateChanged);
+        connect(endDateEdit, &QDateEdit::dateChanged, this, &PeriodPage::onDateChanged);
     }
+
+    bool isComplete() const override {
+        QDate start = startDateEdit->date();
+        QDate end = endDateEdit->date();
+        // Minimum 1 month difference
+        if (start.addMonths(1) > end) {
+            return false;
+        }
+        return !periodNameEdit->text().isEmpty();
+    }
+
+    void onDateChanged() {
+        QDate start = startDateEdit->date();
+        QDate end = endDateEdit->date();
+        if (start.addMonths(1) > end) {
+            errorLabel->setText("End date must be at least 1 month after start date.");
+            errorLabel->setVisible(true);
+        } else {
+            errorLabel->setVisible(false);
+        }
+        emit completeChanged();
+    }
+
     QLineEdit *periodNameEdit;
     QSpinBox *periodYearSpin;
     QDateEdit *startDateEdit;
     QDateEdit *endDateEdit;
+    QLabel *errorLabel;
 };
 
 // --- Student Page ---

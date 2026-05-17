@@ -127,6 +127,22 @@ void ProjectManager::createProject(Connection *connection)
         return;
     }
 
+    // --- Resolve class_id from the student record ---
+    int studentClassId = -1;
+    QSqlQuery classQuery;
+    classQuery.prepare("SELECT class_id FROM tupitube_student WHERE student_id = ?");
+    classQuery.addBindValue(studentID);
+    if (classQuery.exec() && classQuery.next()) {
+        studentClassId = classQuery.value(0).toInt();
+    }
+    if (studentClassId == -1) {
+        connection->sendNotification(300, QObject::tr("No class assigned to this student. Cannot create project."), Notification::Error);
+        connection->close();
+        delete project;
+        return;
+    }
+    project->setProperty("class_id", studentClassId);
+
     bool dbSuccess = false;
     bool saved = project->save();
     if (saved) {
@@ -272,7 +288,7 @@ void ProjectManager::importProject(Connection *connection, const QString &path, 
         project->setProjectParams(studentID);
         QString filename = project->filename();
 
-        QString absolutePath = kAppProp->repositoryDir() + "students/" + uid + "/projects/" + filename + ".tup";
+        QString absolutePath = kAppProp->repositoryDir() + uid + "/projects/" + filename + ".tup";
         QFile file(absolutePath);
         if (file.open(QIODevice::WriteOnly)) {
             file.write(data);
@@ -341,7 +357,7 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     connection->setData(Info::ProjectIsOpen, true);
     m_openedProjects.insert(filename, project);
 
-    QString absolutePath = kAppProp->repositoryDir() + "students/" + uid + "/projects/" + filename + ".tup";
+    QString absolutePath = kAppProp->repositoryDir() + uid + "/projects/" + filename + "/" + filename + ".tup";
 
     // Get project ID from database
     QString projectId = m_dbHandler->exists(filename, uid);

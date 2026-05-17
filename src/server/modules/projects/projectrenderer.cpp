@@ -191,7 +191,7 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     TCONFIG->endGroup();
 
     if (studentsDir.isEmpty())
-        studentsDir = kAppProp->repositoryDir() + "/students";
+        studentsDir = kAppProp->repositoryDir();
 
     QString tupPathA = studentsDir + "/" + studentIdStr + "/projects/"
                        + filename + "/" + filename + ".tup";

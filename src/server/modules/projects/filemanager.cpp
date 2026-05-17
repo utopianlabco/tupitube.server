@@ -60,7 +60,7 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    QString studentPath = repoDir + "/students/" + QString::number(uid) + "/";
+    QString studentPath = repoDir + "/" + QString::number(uid) + "/";
 
     QDir repository(studentPath);
     if (!repository.exists()) {
@@ -84,10 +84,9 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
             return false;
     }
 
-    // Use project_id as a subfolder to avoid filename collisions
-    QString projectId = project->fileCode();
-    QString absolutePath = studentPath + "projects/" + projectId + "/" + filename + ".tup";
-    QDir projectDir(studentPath + "projects/" + projectId);
+    // Use filename as the subfolder (consistent with load path)
+    QString absolutePath = studentPath + "projects/" + filename + "/" + filename + ".tup";
+    QDir projectDir(studentPath + "projects/" + filename);
     if (!projectDir.exists()) {
         if (!projectDir.mkpath(projectDir.path())) {
             #ifdef TUP_DEBUG
@@ -226,9 +225,8 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    // Use project_id as a subfolder to avoid filename collisions
-    QString projectId = project->fileCode();
-    QString absolutePath = repoDir + "/students/" + uid + "/projects/" + projectId + "/" + filename + ".tup";
+    // Use filename as the subfolder (matches the path used during save)
+    QString absolutePath = repoDir + "/" + uid + "/projects/" + filename + "/" + filename + ".tup";
 
     #ifdef TUP_DEBUG
         qWarning() << "[FileManager::load()] - Loading project -> " << absolutePath;
@@ -377,7 +375,7 @@ bool FileManager::createEmptyProjectFile(const QString &projectName, const QStri
     QString repoDir = kAppProp->repositoryDir();
     if (repoDir.endsWith("/"))
         repoDir.chop(1);
-    QString studentPath = repoDir + "/students/" + QString::number(ownerId) + "/";
+    QString studentPath = repoDir + "/" + QString::number(ownerId) + "/";
 
     QDir repository(studentPath);
     if (!repository.exists()) {

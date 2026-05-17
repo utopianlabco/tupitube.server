@@ -836,7 +836,7 @@ void TupServerWindow::updateDerivedPaths()
     QString dataPath = m_dataPathEdit->text();
     m_databasePathLabel->setText(dataPath + "/sqlite");
     m_cachePathLabel->setText(dataPath + "/cache");
-    m_projectsPathLabel->setText(dataPath + "/students");
+    m_projectsPathLabel->setText(dataPath);
     m_renderPathLabel->setText(dataPath + "/render");
 }
 
@@ -920,7 +920,7 @@ void TupServerWindow::saveConfigSettings()
     TCONFIG->endGroup();
 
     TCONFIG->beginGroup("Projects");
-    TCONFIG->setValue("ProjectsPath", dataPath + "/students");
+    TCONFIG->setValue("ProjectsPath", dataPath);
     TCONFIG->endGroup();
 
     // Add Render path to config
@@ -974,18 +974,6 @@ void TupServerWindow::startServer()
     QDir cache(cachePath);
     if (!cache.exists()) {
         cache.mkpath(cachePath);
-    }
-
-    // Create students directory if needed
-    QString studentsPath = dataPath + "/students";
-    QDir studentsDir(studentsPath);
-    if (!studentsDir.exists()) {
-        if (!studentsDir.mkpath(studentsPath)) {
-            appendLog(tr("Failed to create students directory: %1").arg(studentsPath), "ERROR");
-            QMessageBox::critical(this, tr("Error"),
-                tr("Failed to create students directory: %1").arg(studentsPath));
-            return;
-        }
     }
 
     // Create render directory if needed
