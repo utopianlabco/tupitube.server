@@ -19,8 +19,13 @@ SOURCES += netproject.cpp \
            projectmanager.cpp \
            projectrenderer.cpp
 
-INCLUDEPATH += /usr/local/quazip/include/quazip
-LIBS += -L/usr/local/quazip/lib -lquazip1-qt5
+unix {
+    INCLUDEPATH += /usr/local/quazip/include/quazip
+    LIBS += -L/usr/local/quazip/lib -lquazip1-qt5
+}
+win32 {
+    include(../../quazip.win.pri)
+}
 
 LIB_DIR = ../../../lib
 include($$LIB_DIR/lib.pri)

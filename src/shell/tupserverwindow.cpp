@@ -2657,6 +2657,9 @@ void TupServerWindow::playProject()
     QString renderPath = TCONFIG->value("RenderPath").toString();
     TCONFIG->endGroup();
 
+    if (renderPath.isEmpty())
+        renderPath = kAppProp->repositoryDir() + "/render";
+
     QString mp4Path = renderPath + "/" + QString::number(info.studentId) + "/" + info.filename + ".mp4";
     if (!QFile::exists(mp4Path)) {
         QMessageBox::warning(this, tr("File Not Found"),

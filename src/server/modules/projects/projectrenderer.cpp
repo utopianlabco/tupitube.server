@@ -50,7 +50,11 @@ void ProjectRenderer::loadVideoPlugin()
 
     QDir pluginDirectory(PLUGINS_DIR);
     foreach (const QString &fileName, pluginDirectory.entryList(QDir::Files)) {
-        if (fileName.compare("libtupiffmpegplugin.so") != 0)
+        #ifdef Q_OS_WIN
+            if (fileName.compare("tupiffmpegplugin.dll") != 0)
+        #else
+            if (fileName.compare("libtupiffmpegplugin.so") != 0)
+        #endif
             continue;
 
         QPluginLoader loader(pluginDirectory.absoluteFilePath(fileName));
@@ -67,7 +71,7 @@ void ProjectRenderer::loadVideoPlugin()
         break;
     }
 
-    qWarning() << "[ProjectRenderer::loadVideoPlugin()] - Fatal Error: libtupiffmpegplugin.so not found";
+    qWarning() << "[ProjectRenderer::loadVideoPlugin()] - Fatal Error: ffmpeg plugin not found in:" << PLUGINS_DIR;
 }
 
 double ProjectRenderer::calculateDuration(TupProject *project,
@@ -161,7 +165,7 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
 
     // --- Guard: plugin must be loaded ---
     if (!m_exporter) {
-        result.errorMessage = tr("Video export plugin (libtupiffmpegplugin.so) is not loaded. "
+        result.errorMessage = tr("Video export plugin is not loaded. "
                                  "Check the plugins directory.");
         qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
         return result;
@@ -238,6 +242,14 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
 
     if (sceneList.isEmpty()) {
         result.errorMessage = tr("Project '%1' has no renderable scenes.").arg(filename);
+        qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
+        delete project;
+        return result;
+    }
+
+    if (timer <= 0) {
+        result.errorMessage = tr("Project '%1' has a duration of zero. "
+                                 "Make sure your scenes have frames and a valid FPS value.").arg(filename);
         qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
         delete project;
         return result;

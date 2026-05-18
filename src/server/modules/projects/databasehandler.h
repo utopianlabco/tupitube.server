@@ -200,6 +200,7 @@ public:
 
         RenderProjectInfo getProjectRenderInfo(int projectId) const;
         bool updateProjectLastRendered(int projectId);
+        bool touchProjectUpdatedAt(const QString &filename);
 
         // Grade management (teacher assigns grade per project)
         struct GradeInfo

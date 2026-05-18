@@ -5,7 +5,12 @@ TARGET = tuputils
 CONFIG += warn_on dll
 TEMPLATE = lib
 
-INCLUDEPATH += /usr/local/ffmpeg/include
+unix {
+    INCLUDEPATH += /usr/local/ffmpeg/include
+}
+win32 {
+    INCLUDEPATH += C:/ffmpeg/include
+}
 
 HEADERS = genericexportplugin.h \
           global.h

@@ -56,4 +56,6 @@ unix {
 win32 {
     # Include Windows configuration
     include(../../win.pri)
+    include(../../quazip.win.pri)
+    include(../../ffmpeg.win.pri)
 }

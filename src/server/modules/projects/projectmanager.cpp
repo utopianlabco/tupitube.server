@@ -1000,8 +1000,12 @@ void ProjectManager::closeProject(const QString &projectID)
 
 bool ProjectManager::saveProject(const QString &projectID, bool quiet)
 {
-    if (m_openedProjects.contains(projectID))
-        return m_openedProjects.value(projectID)->save(quiet);
+    if (m_openedProjects.contains(projectID)) {
+        bool ok = m_openedProjects.value(projectID)->save(quiet);
+        if (ok)
+            m_dbHandler->touchProjectUpdatedAt(projectID);
+        return ok;
+    }
 
     return false;
 }
@@ -1144,7 +1148,12 @@ void ProjectManager::loadVideoPlugin()
     bool found = false;
 
     foreach (QString fileName, pluginDirectory.entryList(QDir::Files)) {
-	if (fileName.compare("libtupiffmpegplugin.so") == 0) {
+        #ifdef Q_OS_WIN
+            const bool isPlugin = (fileName.compare("tupiffmpegplugin.dll") == 0);
+        #else
+            const bool isPlugin = (fileName.compare("libtupiffmpegplugin.so") == 0);
+        #endif
+        if (isPlugin) {
             #ifdef TUP_DEBUG
                 qDebug() << "[ProjectManager::loadVideoPlugin()] - Plugin was found! Loading...";
             #endif
