@@ -400,6 +400,8 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     }
 
     m_connectionList[filename].append(connection);
+
+    emit projectRegistered(filename);
 }
 
 void ProjectManager::createImage(Connection *connection, int frame, int scene, const QString &title, const QString &topics, const QString &description)

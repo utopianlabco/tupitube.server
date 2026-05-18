@@ -157,6 +157,7 @@ public:
             QString periodName;
             bool groupProject;
             QString lastRenderedAt; // empty if never rendered
+            QString updatedAt;
         };
 
         QList<ProjectRecord> getAllProjects() const;
@@ -205,13 +206,13 @@ public:
         {
             bool found;
             int gradeId;
-            double grade;
+            QString grade;
             QString comments;
             QString updatedAt;
         };
 
         bool saveGrade(int projectId, int studentId, int teacherStudentId,
-                       int periodId, int classId, double grade,
+                       int periodId, int classId, const QString &grade,
                        const QString &comments);
         GradeInfo getGrade(int projectId, int studentId) const;
 

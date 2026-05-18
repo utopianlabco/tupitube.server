@@ -65,6 +65,7 @@ public:
 
 signals:
     void projectEventLog(const QString &message, const QString &level);
+    void projectRegistered(const QString &filename);
 
     // private slots:
         // void updateProcessStatus(int exitCode, QProcess::ExitStatus exitStatus);

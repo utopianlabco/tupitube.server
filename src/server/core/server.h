@@ -73,6 +73,7 @@ class TcpServer : public QTcpServer
         void studentConnected(const QString &studentname, const QString &ip);
         void studentDisconnected(const QString &studentname);
         void logMessage(const QString &message, const QString &level);
+        void projectRegistered(const QString &filename);
         
     private slots:
         void sendToAll(const QString &msg);

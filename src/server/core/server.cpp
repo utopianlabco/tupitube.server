@@ -78,6 +78,7 @@ TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
     connect(m_projectManager, &ProjectManager::projectEventLog, this, [this](const QString &msg, const QString &level) {
         emit logMessage(msg, level);
     });
+    connect(m_projectManager, &ProjectManager::projectRegistered, this, &TcpServer::projectRegistered);
 
     m_communicationManager = new CommunicationManager;
     m_observers << m_communicationManager;

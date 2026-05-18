@@ -107,7 +107,7 @@ static QStringList getLocalIPAddresses()
 
 TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     m_server(nullptr), m_serverRunning(false), m_dbHandler(nullptr),
-    m_renderProjectButton(nullptr), m_watchProjectButton(nullptr),
+    m_playProjectButton(nullptr),
 
     m_gradeProjectButton(nullptr), m_projectRenderer(nullptr)
 {
@@ -125,6 +125,9 @@ TupServerWindow::TupServerWindow(QWidget *parent) : QMainWindow(parent),
     connect(m_server, &TcpServer::studentConnected, this, &TupServerWindow::onStudentConnected);
     connect(m_server, &TcpServer::studentDisconnected, this, &TupServerWindow::onStudentDisconnected);
     connect(m_server, &TcpServer::logMessage, this, &TupServerWindow::onLogMessage);
+    connect(m_server, &TcpServer::projectRegistered, this, [this](const QString &) {
+        refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
+    });
 
     setupUI();
     setupMenuBar();
@@ -590,19 +593,12 @@ void TupServerWindow::setupProjectsTab()
     connect(m_removeProjectButton, &QPushButton::clicked, this, &TupServerWindow::removeProject);
     projectButtonLayout->addWidget(m_removeProjectButton);
 
-    m_renderProjectButton = new QPushButton(tr("Render"));
-    m_renderProjectButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    m_renderProjectButton->setEnabled(false);
-    m_renderProjectButton->setToolTip(tr("Render selected project to MP4"));
-    connect(m_renderProjectButton, &QPushButton::clicked, this, &TupServerWindow::renderProject);
-    projectButtonLayout->addWidget(m_renderProjectButton);
-
-    m_watchProjectButton = new QPushButton(tr("Watch"));
-    m_watchProjectButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
-    m_watchProjectButton->setEnabled(false);
-    m_watchProjectButton->setToolTip(tr("Open rendered MP4 in default video player"));
-    connect(m_watchProjectButton, &QPushButton::clicked, this, &TupServerWindow::watchProject);
-    projectButtonLayout->addWidget(m_watchProjectButton);
+    m_playProjectButton = new QPushButton(tr("Play"));
+    m_playProjectButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_playProjectButton->setEnabled(false);
+    m_playProjectButton->setToolTip(tr("Render if needed and play the project MP4"));
+    connect(m_playProjectButton, &QPushButton::clicked, this, &TupServerWindow::playProject);
+    projectButtonLayout->addWidget(m_playProjectButton);
 
     m_gradeProjectButton = new QPushButton(tr("Grade"));
     m_gradeProjectButton->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
@@ -622,7 +618,7 @@ void TupServerWindow::setupProjectsTab()
     QVBoxLayout *collaboratorsLayout = new QVBoxLayout(collaboratorsGroup);
 
     m_collaboratorsTable = new QTableWidget(0, 3);
-    m_collaboratorsTable->setHorizontalHeaderLabels({tr("Student Name"), tr("Full Name"), tr("Permission")});
+    m_collaboratorsTable->setHorizontalHeaderLabels({tr("Username"), tr("Full Name"), tr("Permission")});
     m_collaboratorsTable->horizontalHeader()->setStretchLastSection(true);
     m_collaboratorsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_collaboratorsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -1554,18 +1550,13 @@ void TupServerWindow::onProjectSelectionChanged()
     m_manageCollaboratorsButton->setEnabled(hasSelection);
     m_viewChatButton->setEnabled(hasSelection);
     m_removeProjectButton->setEnabled(hasSelection);
-    m_renderProjectButton->setEnabled(hasSelection);
+    m_playProjectButton->setEnabled(hasSelection);
     m_gradeProjectButton->setEnabled(hasSelection);
 
     if (hasSelection) {
-        // Enable Watch only if already rendered (column 4 != "No")
-        QString renderedText = m_projectsTable->item(currentRow, 4)->text();
-        m_watchProjectButton->setEnabled(renderedText != tr("No"));
-
         int projectId = m_projectsTable->item(currentRow, 0)->text().toInt();
         updateCollaboratorsDisplay(projectId);
     } else {
-        m_watchProjectButton->setEnabled(false);
         m_collaboratorsTable->setRowCount(0);
     }
 }
@@ -2018,14 +2009,13 @@ void TupServerWindow::removeProject()
             QString repoDir = kAppProp->repositoryDir();
             if (repoDir.endsWith("/"))
                 repoDir.chop(1);
-            QString projectPath = repoDir + "/" + QString::number(ownerId) + "/projects/" + filename + ".tup";
-            
-            QFile projectFile(projectPath);
-            if (projectFile.exists()) {
-                if (projectFile.remove()) {
-                    appendLog(tr("Project file deleted: %1").arg(projectPath), "INFO");
+            QString projectDir = repoDir + "/" + QString::number(ownerId) + "/projects/" + filename;
+            QDir projectDirectory(projectDir);
+            if (projectDirectory.exists()) {
+                if (projectDirectory.removeRecursively()) {
+                    appendLog(tr("Project directory deleted: %1").arg(projectDir), "INFO");
                 } else {
-                    appendLog(tr("Warning: Could not delete project file: %1").arg(projectPath), "WARNING");
+                    appendLog(tr("Warning: Could not delete project directory: %1").arg(projectDir), "WARNING");
                 }
             }
 
@@ -2321,16 +2311,15 @@ void TupServerWindow::refreshProjectsList(const QString &filter)
 
         // Grade column
         DatabaseHandler::GradeInfo gradeInfo = m_dbHandler->getGrade(project.projectId, project.ownerId);
-        QString gradeText = gradeInfo.found ? QString::number(gradeInfo.grade, 'f', 1) : tr("-");
+        QString gradeText = gradeInfo.found ? gradeInfo.grade : tr("-");
         m_projectsTable->setItem(row, 5, new QTableWidgetItem(gradeText));
 
         m_projectsTable->setItem(row, 6, new QTableWidgetItem(project.createdAt));
         ++count;
     }
     m_manageCollaboratorsButton->setEnabled(false);
-    if (m_renderProjectButton) m_renderProjectButton->setEnabled(false);
-    if (m_watchProjectButton)  m_watchProjectButton->setEnabled(false);
-    if (m_gradeProjectButton)  m_gradeProjectButton->setEnabled(false);
+    if (m_playProjectButton)  m_playProjectButton->setEnabled(false);
+    if (m_gradeProjectButton) m_gradeProjectButton->setEnabled(false);
     appendLog(tr("Project list refreshed: %1 projects found").arg(count), "INFO");
 }
 
@@ -2608,7 +2597,7 @@ void TupServerWindow::refreshPeriodsList() {
 
 // === Render / Watch / Grade slots ===
 
-void TupServerWindow::renderProject()
+void TupServerWindow::playProject()
 {
     int row = m_projectsTable->currentRow();
     if (row < 0) return;
@@ -2616,37 +2605,51 @@ void TupServerWindow::renderProject()
     int projectId = m_projectsTable->item(row, 0)->text().toInt();
     QString title  = m_projectsTable->item(row, 1)->text();
 
-    QProgressDialog progress(tr("Rendering \"%1\"...").arg(title), QString(), 0, 0, this);
-    progress.setWindowModality(Qt::WindowModal);
-    progress.setMinimumDuration(0);
-    progress.show();
-    QApplication::processEvents();
+    // Find the project record to compare lastRenderedAt vs updatedAt
+    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
+    DatabaseHandler::ProjectRecord record;
+    bool found = false;
+    for (const auto &p : projects) {
+        if (p.projectId == projectId) {
+            record = p;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project data."));
+        return;
+    }
 
-    ProjectRenderer::RenderResult result = m_projectRenderer->renderProject(projectId);
-    progress.close();
+    // Render if never rendered or if the project was modified after the last render
+    bool renderNeeded = record.lastRenderedAt.isEmpty() ||
+                        (!record.updatedAt.isEmpty() && record.updatedAt > record.lastRenderedAt);
 
-    if (result.success) {
+    if (renderNeeded) {
+        QProgressDialog progress(tr("Rendering \"%1\"...").arg(title), QString(), 0, 0, this);
+        progress.setWindowModality(Qt::WindowModal);
+        progress.setMinimumDuration(0);
+        progress.show();
+        QApplication::processEvents();
+
+        ProjectRenderer::RenderResult result = m_projectRenderer->renderProject(projectId);
+        progress.close();
+
+        if (!result.success) {
+            appendLog(tr("Render failed for '%1': %2").arg(title, result.errorMessage), "ERROR");
+            QMessageBox::critical(this, tr("Render Failed"),
+                tr("Failed to render \"%1\":\n\n%2").arg(title, result.errorMessage));
+            return;
+        }
+
         appendLog(tr("Project '%1' rendered successfully: %2").arg(title, result.mp4Path), "INFO");
         refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
-        m_watchProjectButton->setEnabled(true);
-        QMessageBox::information(this, tr("Render Complete"),
-            tr("Project \"%1\" rendered successfully.\n\nFile: %2").arg(title, result.mp4Path));
-    } else {
-        appendLog(tr("Render failed for '%1': %2").arg(title, result.errorMessage), "ERROR");
-        QMessageBox::critical(this, tr("Render Failed"),
-            tr("Failed to render \"%1\":\n\n%2").arg(title, result.errorMessage));
     }
-}
 
-void TupServerWindow::watchProject()
-{
-    int row = m_projectsTable->currentRow();
-    if (row < 0) return;
-
-    int projectId = m_projectsTable->item(row, 0)->text().toInt();
+    // Build MP4 path and open
     DatabaseHandler::RenderProjectInfo info = m_dbHandler->getProjectRenderInfo(projectId);
     if (!info.found) {
-        QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project information."));
+        QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project render information."));
         return;
     }
 
@@ -2657,7 +2660,7 @@ void TupServerWindow::watchProject()
     QString mp4Path = renderPath + "/" + QString::number(info.studentId) + "/" + info.filename + ".mp4";
     if (!QFile::exists(mp4Path)) {
         QMessageBox::warning(this, tr("File Not Found"),
-            tr("MP4 file not found:\n%1\n\nPlease render the project first.").arg(mp4Path));
+            tr("MP4 file not found:\n%1").arg(mp4Path));
         return;
     }
 
@@ -2700,12 +2703,11 @@ void TupServerWindow::gradeProject()
     QLabel *ownerLabel = new QLabel(record.ownerStudentname);
     form->addRow(tr("Student:"), ownerLabel);
 
-    QDoubleSpinBox *gradeSpinBox = new QDoubleSpinBox();
-    gradeSpinBox->setRange(0.0, 10.0);
-    gradeSpinBox->setSingleStep(0.5);
-    gradeSpinBox->setDecimals(1);
-    gradeSpinBox->setValue(existing.found ? existing.grade : 0.0);
-    form->addRow(tr("Grade (0–10):"), gradeSpinBox);
+    QLineEdit *gradeEdit = new QLineEdit();
+    gradeEdit->setPlaceholderText(tr("e.g. 8.5, A, B+"));
+    if (existing.found)
+        gradeEdit->setText(existing.grade);
+    form->addRow(tr("Grade:"), gradeEdit);
 
     QTextEdit *commentsEdit = new QTextEdit();
     commentsEdit->setPlaceholderText(tr("Optional comments..."));
@@ -2722,15 +2724,20 @@ void TupServerWindow::gradeProject()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    double grade    = gradeSpinBox->value();
+    QString grade   = gradeEdit->text().trimmed();
     QString comments = commentsEdit->toPlainText().trimmed();
+
+    if (grade.isEmpty()) {
+        QMessageBox::warning(this, tr("Error"), tr("Grade cannot be empty."));
+        return;
+    }
 
     // teacherStudentId: 0 means the server/admin teacher (can be updated later)
     bool ok = m_dbHandler->saveGrade(projectId, record.ownerId, 0,
                                      record.periodId, record.classId,
                                      grade, comments);
     if (ok) {
-        appendLog(tr("Grade %.1f saved for project '%2' (student: %3)")
+        appendLog(tr("Grade '%1' saved for project '%2' (student: %3)")
                       .arg(grade).arg(title).arg(record.ownerStudentname), "INFO");
         refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
     } else {

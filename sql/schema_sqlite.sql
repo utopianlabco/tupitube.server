@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS tupitube_grade (
     teacher_student_id INTEGER NOT NULL,
     period_id INTEGER NOT NULL,
     class_id INTEGER NOT NULL,
-    grade REAL NOT NULL,
+    grade TEXT NOT NULL,
     comments TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),

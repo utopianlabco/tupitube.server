@@ -309,6 +309,25 @@ void DatabaseHandler::createDatabaseSchema()
         "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id)"
         ")";
     query.exec(createCollaborationTable);
+
+    // Create tupitube_grade table
+    QString createGradeTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_grade ("
+        "grade_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "project_id INTEGER NOT NULL,"
+        "student_id INTEGER NOT NULL,"
+        "teacher_student_id INTEGER NOT NULL DEFAULT 0,"
+        "period_id INTEGER NOT NULL,"
+        "class_id INTEGER NOT NULL,"
+        "grade TEXT NOT NULL,"
+        "comments TEXT,"
+        "created_at DATETIME DEFAULT (datetime('now')),"
+        "updated_at DATETIME DEFAULT (datetime('now')),"
+        "UNIQUE(project_id, student_id, teacher_student_id, period_id, class_id),"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id),"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id)"
+        ")";
+    query.exec(createGradeTable);
 }
 
 DatabaseHandler::~DatabaseHandler()
@@ -1056,7 +1075,7 @@ QList<DatabaseHandler::ProjectRecord> DatabaseHandler::getAllProjects() const
     QList<ProjectRecord> projects;
     QString sql = "SELECT p.project_id, p.title, p.filename, p.student_id, u.studentname, p.description, "
                   "p.created_at, p.is_shared, p.class_id, c.name, p.period_id, per.name, p.group_project, "
-                  "p.last_rendered_at "
+                  "p.last_rendered_at, p.updated_at "
                   "FROM tupitube_project p "
                   "LEFT JOIN tupitube_student u ON p.student_id = u.student_id "
                   "LEFT JOIN tupitube_class c ON p.class_id = c.class_id "
@@ -1079,6 +1098,7 @@ QList<DatabaseHandler::ProjectRecord> DatabaseHandler::getAllProjects() const
         record.periodName = query.value(11).toString();
         record.groupProject = query.value(12).toBool();
         record.lastRenderedAt = query.value(13).toString();
+        record.updatedAt = query.value(14).toString();
         projects.append(record);
     }
     query.clear();
@@ -1557,7 +1577,7 @@ bool DatabaseHandler::updateProjectLastRendered(int projectId)
 // === Grade management ===
 
 bool DatabaseHandler::saveGrade(int projectId, int studentId, int teacherStudentId,
-                                 int periodId, int classId, double grade,
+                                 int periodId, int classId, const QString &grade,
                                  const QString &comments)
 {
     #ifdef TUP_DEBUG
@@ -1566,27 +1586,65 @@ bool DatabaseHandler::saveGrade(int projectId, int studentId, int teacherStudent
     #endif
 
     QSqlQuery query;
-    // Use INSERT OR REPLACE to handle the UNIQUE constraint
-    query.prepare("INSERT INTO tupitube_grade "
-                  "(project_id, student_id, teacher_student_id, period_id, class_id, grade, comments, "
-                  " created_at, updated_at) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')) "
-                  "ON CONFLICT(project_id, student_id, teacher_student_id, period_id, class_id) "
-                  "DO UPDATE SET grade = excluded.grade, comments = excluded.comments, "
-                  "updated_at = datetime('now')");
+
+    // Check whether a grade record already exists for this key
+    query.prepare("SELECT grade_id FROM tupitube_grade "
+                  "WHERE project_id = ? AND student_id = ? AND teacher_student_id = ? "
+                  "AND period_id = ? AND class_id = ?");
     query.addBindValue(projectId);
     query.addBindValue(studentId);
     query.addBindValue(teacherStudentId);
     query.addBindValue(periodId);
     query.addBindValue(classId);
-    query.addBindValue(grade);
-    query.addBindValue(comments);
 
-    bool ok = query.exec();
-    #ifdef TUP_DEBUG
-        if (!ok)
-            qWarning() << "[DatabaseHandler::saveGrade()] - Error:" << query.lastError().text();
-    #endif
+    if (!query.exec()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::saveGrade()] - Error (select):" << query.lastError().text();
+        #endif
+        return false;
+    }
+
+    bool ok;
+    if (query.next()) {
+        // Record exists — update grade and comments
+        QSqlQuery upd;
+        upd.prepare("UPDATE tupitube_grade "
+                    "SET grade = ?, comments = ?, updated_at = datetime('now') "
+                    "WHERE project_id = ? AND student_id = ? AND teacher_student_id = ? "
+                    "AND period_id = ? AND class_id = ?");
+        upd.addBindValue(grade);
+        upd.addBindValue(comments);
+        upd.addBindValue(projectId);
+        upd.addBindValue(studentId);
+        upd.addBindValue(teacherStudentId);
+        upd.addBindValue(periodId);
+        upd.addBindValue(classId);
+        ok = upd.exec();
+        #ifdef TUP_DEBUG
+            if (!ok)
+                qWarning() << "[DatabaseHandler::saveGrade()] - Error (update):" << upd.lastError().text();
+        #endif
+    } else {
+        // No record yet — insert
+        QSqlQuery ins;
+        ins.prepare("INSERT INTO tupitube_grade "
+                    "(project_id, student_id, teacher_student_id, period_id, class_id, "
+                    " grade, comments, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))");
+        ins.addBindValue(projectId);
+        ins.addBindValue(studentId);
+        ins.addBindValue(teacherStudentId);
+        ins.addBindValue(periodId);
+        ins.addBindValue(classId);
+        ins.addBindValue(grade);
+        ins.addBindValue(comments);
+        ok = ins.exec();
+        #ifdef TUP_DEBUG
+            if (!ok)
+                qWarning() << "[DatabaseHandler::saveGrade()] - Error (insert):" << ins.lastError().text();
+        #endif
+    }
+
     return ok;
 }
 
@@ -1595,7 +1653,7 @@ DatabaseHandler::GradeInfo DatabaseHandler::getGrade(int projectId, int studentI
     GradeInfo info;
     info.found = false;
     info.gradeId = -1;
-    info.grade = 0.0;
+    info.grade = QString();
 
     QSqlQuery query;
     query.prepare("SELECT grade_id, grade, comments, updated_at FROM tupitube_grade "
@@ -1608,7 +1666,7 @@ DatabaseHandler::GradeInfo DatabaseHandler::getGrade(int projectId, int studentI
 
     info.found = true;
     info.gradeId = query.value(0).toInt();
-    info.grade = query.value(1).toDouble();
+    info.grade = query.value(1).toString();
     info.comments = query.value(2).toString();
     info.updatedAt = query.value(3).toString();
     return info;

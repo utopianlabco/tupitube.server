@@ -100,8 +100,7 @@ private slots:
     void sendBroadcastMessage();
 
     // Render and grade slots
-    void renderProject();
-    void watchProject();
+    void playProject();
     void gradeProject();
 
     // Classes tab slots
@@ -185,8 +184,7 @@ private:
     QPushButton *m_manageCollaboratorsButton;
     QPushButton *m_viewChatButton;
     QPushButton *m_removeProjectButton;
-    QPushButton *m_renderProjectButton;
-    QPushButton *m_watchProjectButton;
+    QPushButton *m_playProjectButton;
     QPushButton *m_gradeProjectButton;
 
     ProjectRenderer *m_projectRenderer;
