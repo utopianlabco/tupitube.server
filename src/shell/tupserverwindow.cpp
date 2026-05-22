@@ -561,8 +561,13 @@ void TupServerWindow::setupProjectsTab()
     m_projectsTable->setAlternatingRowColors(true);
     m_projectsTable->setColumnHidden(0, true); // Hide ID column
     connect(m_projectsTable, &QTableWidget::itemSelectionChanged, this, &TupServerWindow::onProjectSelectionChanged);
-    connect(m_projectsTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem*) {
-        manageCollaborators();
+    connect(m_projectsTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
+        if (item->column() == 1)
+            renameProject();
+        else if (item->column() == 3)
+            manageCollaborators();
+        else if (item->column() == 5)
+            gradeProject();
     });
 
     projectsLayout->addWidget(m_projectsTable);
@@ -2668,6 +2673,45 @@ void TupServerWindow::playProject()
     }
 
     QDesktopServices::openUrl(QUrl::fromLocalFile(mp4Path));
+}
+
+void TupServerWindow::renameProject()
+{
+    int row = m_projectsTable->currentRow();
+    if (row < 0) return;
+
+    int projectId = m_projectsTable->item(row, 0)->text().toInt();
+    QString currentTitle = m_projectsTable->item(row, 1)->text();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Rename Project"));
+    dialog.setMinimumWidth(360);
+
+    QFormLayout *form = new QFormLayout(&dialog);
+
+    QLineEdit *titleEdit = new QLineEdit(currentTitle);
+    titleEdit->selectAll();
+    form->addRow(tr("New title:"), titleEdit);
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    QString newTitle = titleEdit->text().trimmed();
+    if (newTitle.isEmpty() || newTitle == currentTitle)
+        return;
+
+    if (m_dbHandler->renameProjectTitle(projectId, newTitle)) {
+        appendLog(tr("Project '%1' renamed to '%2'").arg(currentTitle).arg(newTitle), "INFO");
+        refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
+    } else {
+        QMessageBox::critical(this, tr("Error"), tr("Failed to rename project."));
+        appendLog(tr("Failed to rename project '%1'").arg(currentTitle), "ERROR");
+    }
 }
 
 void TupServerWindow::gradeProject()

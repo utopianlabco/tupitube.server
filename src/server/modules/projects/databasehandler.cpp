@@ -1587,6 +1587,20 @@ bool DatabaseHandler::touchProjectUpdatedAt(const QString &filename)
     return ok;
 }
 
+bool DatabaseHandler::renameProjectTitle(int projectId, const QString &newTitle)
+{
+    QSqlQuery query;
+    query.prepare("UPDATE tupitube_project SET title = ?, updated_at = datetime('now') WHERE project_id = ?");
+    query.addBindValue(newTitle);
+    query.addBindValue(projectId);
+    bool ok = query.exec();
+    #ifdef TUP_DEBUG
+        if (!ok)
+            qWarning() << "[DatabaseHandler::renameProjectTitle()] - Error:" << query.lastError().text();
+    #endif
+    return ok;
+}
+
 // === Grade management ===
 
 bool DatabaseHandler::saveGrade(int projectId, int studentId, int teacherStudentId,

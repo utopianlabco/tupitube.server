@@ -102,6 +102,7 @@ private slots:
     // Render and grade slots
     void playProject();
     void gradeProject();
+    void renameProject();
 
     // Classes tab slots
     void refreshClassesList();

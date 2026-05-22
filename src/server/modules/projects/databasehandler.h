@@ -212,6 +212,7 @@ public:
             QString updatedAt;
         };
 
+        bool renameProjectTitle(int projectId, const QString &newTitle);
         bool saveGrade(int projectId, int studentId, int teacherStudentId,
                        int periodId, int classId, const QString &grade,
                        const QString &comments);
