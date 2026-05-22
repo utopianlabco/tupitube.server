@@ -14,6 +14,7 @@ HEADERS += tupserverwindow.h \
            
 SOURCES += main.cpp \
            tupserverwindow.cpp \
+           tupserverwindow_gui.cpp \
            tservertheme.cpp \
            firstlaunchwizard.cpp
            

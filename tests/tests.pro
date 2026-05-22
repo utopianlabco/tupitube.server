@@ -43,6 +43,7 @@ include(../tupitube_config.pri)
 # Input
 
 SOURCES += ../src/shell/tupserverwindow.cpp \
+			  ../src/shell/tupserverwindow_gui.cpp \
 			  ../src/shell/tservertheme.cpp \
 			  ../src/shell/firstlaunchwizard.cpp \
 			  ../src/server/base/logger.cpp \
