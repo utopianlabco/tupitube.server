@@ -369,5 +369,8 @@ void TcpServer::handlePackage(Connection* client, const QString &root, const QSt
         m_studentManager->handlePackage(pkg);
     } else if (root.startsWith("communication_")) {
         m_communicationManager->handlePackage(pkg);
+    } else if (root.compare("ping") == 0) {
+        // Keep-alive probe from the client — no action needed
+        delete pkg;
     }
 }
