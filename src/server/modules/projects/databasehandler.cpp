@@ -897,15 +897,8 @@ bool DatabaseHandler::addLog(const QString &type, const QString &filename, const
 
 QList<DatabaseHandler::StudentInfo> DatabaseHandler::getAllStudents() const
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::getAllStudents()]";
-    #endif
-
     QList<StudentInfo> students;
-    QString sql = "SELECT u.student_id, u.name, u.class_id, c.name as class_name, u.studentname, u.password, u.is_enabled, u.is_creator FROM tupitube_student u LEFT JOIN tupitube_class c ON u.class_id = c.class_id ORDER BY u.studentname";
-    QSqlQuery query(sql);
-
-    int rowCount = 0;
+    QSqlQuery query("SELECT u.student_id, u.name, u.class_id, c.name as class_name, u.studentname, u.password, u.is_enabled, u.is_creator FROM tupitube_student u LEFT JOIN tupitube_class c ON u.class_id = c.class_id ORDER BY u.studentname");
     while (query.next()) {
         StudentInfo student;
         student.studentId    = query.value(0).toInt();
@@ -917,135 +910,76 @@ QList<DatabaseHandler::StudentInfo> DatabaseHandler::getAllStudents() const
         student.isEnabled = query.value(6).toBool();
         student.isCreator = query.value(7).toBool();
         students.append(student);
-        ++rowCount;
     }
-    #ifdef TUP_DEBUG
-    qDebug() << "[getAllStudents] Total rows found:" << rowCount;
-    #endif
-
     return students;
 }
 
-bool DatabaseHandler::addStudent(const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass)
+bool DatabaseHandler::addStudent(const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, int classId)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::addStudent()] - studentname:" << studentname;
-    #endif
-
-    if (studentnameExists(studentname)) {
-        #ifdef TUP_DEBUG
-            qDebug() << "[DatabaseHandler::addStudent()] - Studentname already exists:" << studentname;
-        #endif
+    if (studentnameExists(studentname))
         return false;
-    }
-
-    // studentClass is now expected to be the class name; look up class_id
-    int classId = -1;
-    QSqlQuery classQuery;
-    classQuery.prepare("SELECT class_id FROM tupitube_class WHERE name = ?");
-    classQuery.addBindValue(studentClass);
-    if (classQuery.exec() && classQuery.next()) {
-        classId = classQuery.value(0).toInt();
-    } else {
-        // Optionally, insert the class if it doesn't exist
-        QSqlQuery insertClass;
-        insertClass.prepare("INSERT INTO tupitube_class (name, year) VALUES (?, strftime('%Y', 'now'))");
-        insertClass.addBindValue(studentClass);
-        if (insertClass.exec()) {
-            classId = insertClass.lastInsertId().toInt();
-        }
-    }
-    if (classId == -1) return false;
-    QString sql = "INSERT INTO tupitube_student (studentname, name, password, is_enabled, is_creator, class_id) VALUES (";
-    sql += "'" + studentname + "', ";
-    sql += "'" + name + "', ";
-    sql += "'" + password + "', ";
-    sql += QString::number(isEnabled ? 1 : 0) + ", ";
-    sql += QString::number(isCreator ? 1 : 0) + ", ";
-    sql += QString::number(classId);
-    sql += ")";
 
     QSqlQuery query;
-    bool isOk = query.exec(sql);
-
-    #ifdef TUP_DEBUG
-        qWarning() << "[DatabaseHandler::addStudent()] - SQL:" << sql;
-        if (!isOk)
-            qWarning() << "[DatabaseHandler::addStudent()] - Error:" << query.lastError().text();
-    #endif
-
-    return isOk;
+    query.prepare("INSERT INTO tupitube_student (studentname, name, password, is_enabled, is_creator, class_id) "
+                  "VALUES (?, ?, ?, ?, ?, ?)");
+    query.addBindValue(studentname);
+    query.addBindValue(name);
+    query.addBindValue(password);
+    query.addBindValue(isEnabled ? 1 : 0);
+    query.addBindValue(isCreator ? 1 : 0);
+    query.addBindValue(classId);
+    return query.exec();
 }
 
-bool DatabaseHandler::updateStudent(int studentId, const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass)
+bool DatabaseHandler::updateStudent(int studentId, const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, int classId)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::updateStudent()] - studentId:" << studentId;
-    #endif
-
-    // studentClass is now expected to be the class name; look up class_id
-    int classId = -1;
-    QSqlQuery classQuery;
-    classQuery.prepare("SELECT class_id FROM tupitube_class WHERE name = ?");
-    classQuery.addBindValue(studentClass);
-    if (classQuery.exec() && classQuery.next()) {
-        classId = classQuery.value(0).toInt();
-    } else {
-        // Optionally, insert the class if it doesn't exist
-        QSqlQuery insertClass;
-        insertClass.prepare("INSERT INTO tupitube_class (name, year) VALUES (?, strftime('%Y', 'now'))");
-        insertClass.addBindValue(studentClass);
-        if (insertClass.exec()) {
-            classId = insertClass.lastInsertId().toInt();
-        }
-    }
-    if (classId == -1) return false;
-    QString sql = "UPDATE tupitube_student SET ";
-    sql += "studentname = '" + studentname + "', ";
-    sql += "name = '" + name + "', ";
-    if (!password.isEmpty()) {
-        sql += "password = '" + password + "', ";
-    }
-    sql += "is_enabled = " + QString::number(isEnabled ? 1 : 0) + ", ";
-    sql += "is_creator = " + QString::number(isCreator ? 1 : 0) + ", ";
-    sql += "class_id = " + QString::number(classId);
-    sql += ", updated_at = datetime('now') ";
-    sql += "WHERE student_id = " + QString::number(studentId);
-
     QSqlQuery query;
-    bool isOk = query.exec(sql);
-
-    #ifdef TUP_DEBUG
-        qWarning() << "[DatabaseHandler::updateStudent()] - SQL:" << sql;
-        if (!isOk)
-            qWarning() << "[DatabaseHandler::updateStudent()] - Error:" << query.lastError().text();
-    #endif
-
-    return isOk;
+    if (password.isEmpty()) {
+        query.prepare("UPDATE tupitube_student SET studentname=?, name=?, is_enabled=?, is_creator=?, class_id=?, updated_at=datetime('now') WHERE student_id=?");
+        query.addBindValue(studentname);
+        query.addBindValue(name);
+        query.addBindValue(isEnabled ? 1 : 0);
+        query.addBindValue(isCreator ? 1 : 0);
+        query.addBindValue(classId);
+        query.addBindValue(studentId);
+    } else {
+        query.prepare("UPDATE tupitube_student SET studentname=?, name=?, password=?, is_enabled=?, is_creator=?, class_id=?, updated_at=datetime('now') WHERE student_id=?");
+        query.addBindValue(studentname);
+        query.addBindValue(name);
+        query.addBindValue(password);
+        query.addBindValue(isEnabled ? 1 : 0);
+        query.addBindValue(isCreator ? 1 : 0);
+        query.addBindValue(classId);
+        query.addBindValue(studentId);
+    }
+    return query.exec();
 }
 
 bool DatabaseHandler::removeStudent(int studentId)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[DatabaseHandler::removeStudent()] - studentId:" << studentId;
-    #endif
-
-    QString sql = "DELETE FROM tupitube_student WHERE student_id = " + QString::number(studentId);
     QSqlQuery query;
-    bool isOk = query.exec(sql);
-
+    query.prepare("DELETE FROM tupitube_student WHERE student_id = ?");
+    query.addBindValue(studentId);
+    bool isOk = query.exec();
     if (!isOk) {
         QSqlError err = query.lastError();
-        // Check for foreign key constraint error (SQLITE_CONSTRAINT 19)
         if (err.type() == QSqlError::StatementError && err.nativeErrorCode() == "19") {
-            // This means the student owns projects or is referenced elsewhere
             qWarning() << "[DatabaseHandler::removeStudent()] - Cannot delete student: owns projects or is referenced.";
         } else {
             qWarning() << "[DatabaseHandler::removeStudent()] - Error:" << err.text();
         }
     }
-
     return isOk;
+}
+
+int DatabaseHandler::getClassIdByName(const QString &name) const
+{
+    QSqlQuery query;
+    query.prepare("SELECT class_id FROM tupitube_class WHERE name = ?");
+    query.addBindValue(name);
+    if (query.exec() && query.next())
+        return query.value(0).toInt();
+    return -1;
 }
 
 bool DatabaseHandler::studentnameExists(const QString &studentname) const
@@ -1493,6 +1427,33 @@ bool DatabaseHandler::removeClass(int classId) {
     return query.exec();
 }
 
+bool DatabaseHandler::classHasStudents(int classId) const {
+    QSqlQuery query;
+    query.prepare("SELECT COUNT(*) FROM tupitube_student WHERE class_id = ?");
+    query.addBindValue(classId);
+    if (query.exec() && query.next())
+        return query.value(0).toInt() > 0;
+    return false;
+}
+
+bool DatabaseHandler::classHasProjects(int classId) const {
+    QSqlQuery query;
+    query.prepare("SELECT COUNT(*) FROM tupitube_project WHERE class_id = ?");
+    query.addBindValue(classId);
+    if (query.exec() && query.next())
+        return query.value(0).toInt() > 0;
+    return false;
+}
+
+int DatabaseHandler::getStudentCountForClass(int classId) const {
+    QSqlQuery query;
+    query.prepare("SELECT COUNT(*) FROM tupitube_student WHERE class_id = ?");
+    query.addBindValue(classId);
+    if (query.exec() && query.next())
+        return query.value(0).toInt();
+    return 0;
+}
+
 QList<DatabaseHandler::PeriodInfo> DatabaseHandler::getAllPeriods() const {
     QList<PeriodInfo> list;
     QSqlQuery query("SELECT period_id, name, year, start_date, end_date FROM tupitube_period ORDER BY year DESC, name ASC");
@@ -1534,6 +1495,15 @@ bool DatabaseHandler::removePeriod(int periodId) {
     query.prepare("DELETE FROM tupitube_period WHERE period_id=?");
     query.addBindValue(periodId);
     return query.exec();
+}
+
+bool DatabaseHandler::periodHasProjects(int periodId) const {
+    QSqlQuery query;
+    query.prepare("SELECT COUNT(*) FROM tupitube_project WHERE period_id = ?");
+    query.addBindValue(periodId);
+    if (query.exec() && query.next())
+        return query.value(0).toInt() > 0;
+    return false;
 }
 
 // === Render support ===
@@ -1612,7 +1582,7 @@ bool DatabaseHandler::saveGrade(int projectId, int studentId, int teacherStudent
                  << "studentId:" << studentId << "grade:" << grade;
     #endif
 
-    QSqlQuery query;
+    QSqlQuery query(db);
 
     // Check whether a grade record already exists for this key
     query.prepare("SELECT grade_id FROM tupitube_grade "
@@ -1634,7 +1604,7 @@ bool DatabaseHandler::saveGrade(int projectId, int studentId, int teacherStudent
     bool ok;
     if (query.next()) {
         // Record exists — update grade and comments
-        QSqlQuery upd;
+        QSqlQuery upd(db);
         upd.prepare("UPDATE tupitube_grade "
                     "SET grade = ?, comments = ?, updated_at = datetime('now') "
                     "WHERE project_id = ? AND student_id = ? AND teacher_student_id = ? "
@@ -1653,7 +1623,7 @@ bool DatabaseHandler::saveGrade(int projectId, int studentId, int teacherStudent
         #endif
     } else {
         // No record yet — insert
-        QSqlQuery ins;
+        QSqlQuery ins(db);
         ins.prepare("INSERT INTO tupitube_grade "
                     "(project_id, student_id, teacher_student_id, period_id, class_id, "
                     " grade, comments, created_at, updated_at) "
@@ -1682,7 +1652,7 @@ DatabaseHandler::GradeInfo DatabaseHandler::getGrade(int projectId, int studentI
     info.gradeId = -1;
     info.grade = QString();
 
-    QSqlQuery query;
+    QSqlQuery query(db);
     query.prepare("SELECT grade_id, grade, comments, updated_at FROM tupitube_grade "
                   "WHERE project_id = ? AND student_id = ? "
                   "ORDER BY updated_at DESC LIMIT 1");

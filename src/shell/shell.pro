@@ -10,13 +10,15 @@ TEMPLATE = app
 
 HEADERS += tupserverwindow.h \
            tservertheme.h \
-           firstlaunchwizard.h
+           firstlaunchwizard.h \
+           gradebookdialog.h
            
 SOURCES += main.cpp \
            tupserverwindow.cpp \
            tupserverwindow_gui.cpp \
            tservertheme.cpp \
-           firstlaunchwizard.cpp
+           firstlaunchwizard.cpp \
+           gradebookdialog.cpp
            
 RESOURCES += resources.qrc
 

@@ -323,7 +323,8 @@ int main(int argc, char *argv[])
 
         bool classOk = m_dbHandler->addClass(className, classYear, classDesc);
         bool periodOk = m_dbHandler->addPeriod(periodName, periodYear, periodStartDate.toString("yyyy-MM-dd"), periodEndDate.toString("yyyy-MM-dd"));
-        bool studentOk = m_dbHandler->addStudent(studentUsername, studentFullName, hashedPassword, true, studentIsCreator, studentClass);
+        int newClassId = m_dbHandler->getClassIdByName(className);
+        bool studentOk = (newClassId > 0) && m_dbHandler->addStudent(studentUsername, studentFullName, hashedPassword, true, studentIsCreator, newClassId);
 
         qDebug() << "[main.cpp] addClass result:" << classOk;
         qDebug() << "[main.cpp] addPeriod result:" << periodOk;

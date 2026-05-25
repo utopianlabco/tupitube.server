@@ -113,6 +113,7 @@ private slots:
     void onAddPeriod();
     void onEditPeriod();
     void onRemovePeriod();
+    void onOpenGradeBook();
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -155,6 +156,7 @@ private:
     QPushButton *m_addPeriodButton;
     QPushButton *m_editPeriodButton;
     QPushButton *m_removePeriodButton;
+    QPushButton *m_gradeBookButton;
     // QPushButton *m_refreshClassesButton; removed
 
     // Status tab widgets
@@ -192,6 +194,7 @@ private:
 
     // Logs tab widgets
     QTextEdit *m_logView;
+    QLabel *m_logPathLabel;
     QPushButton *m_clearLogsButton;
 
     // Settings tab widgets
@@ -202,6 +205,9 @@ private:
     QLabel *m_cachePathLabel;
     QLabel *m_projectsPathLabel;
     QLabel *m_renderPathLabel;
+    QLineEdit *m_logPathEdit;
+    QPushButton *m_browseLogPathButton;
+    QLineEdit *m_teacherNameEdit;
     QComboBox *m_languageCombo;
     QComboBox *m_themeCombo;
     QPushButton *m_saveSettingsButton;

@@ -8,5 +8,8 @@ private slots:
     void test_window_creation();
     void test_tabs_and_widgets_exist();
     void test_menu_and_actions_exist();
+    void test_tab_names();
+    void test_table_count();
+    void test_gradebook_button_exists();
 };
 #endif // TUPSERVERWINDOW_EXISTENCE_TEST_H

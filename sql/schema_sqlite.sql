@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS tupitube_grade (
     grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     student_id INTEGER NOT NULL,
-    teacher_student_id INTEGER NOT NULL,
+    teacher_student_id INTEGER DEFAULT 0,
     period_id INTEGER NOT NULL,
     class_id INTEGER NOT NULL,
     grade TEXT NOT NULL,
@@ -149,7 +149,6 @@ CREATE TABLE IF NOT EXISTS tupitube_grade (
     updated_at DATETIME DEFAULT (datetime('now')),
     FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
     FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
-    FOREIGN KEY (teacher_student_id) REFERENCES tupitube_student(student_id) ON DELETE RESTRICT,
     FOREIGN KEY (period_id) REFERENCES tupitube_period(period_id) ON DELETE RESTRICT,
     FOREIGN KEY (class_id) REFERENCES tupitube_class(class_id) ON DELETE RESTRICT,
     UNIQUE (project_id, student_id, teacher_student_id, period_id, class_id)

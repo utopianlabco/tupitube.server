@@ -65,11 +65,15 @@ public:
     bool addClass(const QString &name, int year, const QString &description);
     bool updateClass(int classId, const QString &name, int year, const QString &description);
     bool removeClass(int classId);
+    bool classHasStudents(int classId) const;
+    bool classHasProjects(int classId) const;
+    int getStudentCountForClass(int classId) const;
 
     QList<PeriodInfo> getAllPeriods() const;
     bool addPeriod(const QString &name, int year, const QString &startDate, const QString &endDate);
     bool updatePeriod(int periodId, const QString &name, int year, const QString &startDate, const QString &endDate);
     bool removePeriod(int periodId);
+    bool periodHasProjects(int periodId) const;
 
     public:
         struct ProjectInfo
@@ -126,10 +130,11 @@ public:
 
         // Student management methods (for classroom administration)
         QList<StudentInfo> getAllStudents() const;
-        bool addStudent(const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass);
-        bool updateStudent(int studentId, const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, const QString &studentClass);
+        bool addStudent(const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, int classId);
+        bool updateStudent(int studentId, const QString &studentname, const QString &name, const QString &password, bool isEnabled, bool isCreator, int classId);
         bool removeStudent(int studentId);
         bool studentnameExists(const QString &studentname) const;
+        int getClassIdByName(const QString &name) const;
 
         // Collaboration management methods (teacher-only from server GUI)
         struct CollaboratorInfo

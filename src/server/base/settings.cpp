@@ -64,7 +64,10 @@ void Settings::reset()
 
 void Settings::setRepositoryPath(const QString &repository)
 {
-    m_repositoryPath = repository + "/";
+    if (repository.isEmpty() || repository.endsWith("/"))
+        m_repositoryPath = repository;
+    else
+        m_repositoryPath = repository + "/";
 }
 
 QString Settings::repositoryPath() const
@@ -74,7 +77,10 @@ QString Settings::repositoryPath() const
 
 void Settings::setBackupPath(const QString &backupPath)
 {
-    m_backupPath = backupPath + "/";
+    if (backupPath.isEmpty() || backupPath.endsWith("/"))
+        m_backupPath = backupPath;
+    else
+        m_backupPath = backupPath + "/";
 }
 
 QString Settings::backupPath() const

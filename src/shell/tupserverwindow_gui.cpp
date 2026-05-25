@@ -38,11 +38,13 @@
 
 #include "tupserverwindow.h"
 #include "tservertheme.h"
+#include "gradebookdialog.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QFrame>
 #include <QHeaderView>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -203,24 +205,28 @@ void TupServerWindow::setupClassesTab()
     QGroupBox *classesGroup = new QGroupBox(tr("Classes"));
     QVBoxLayout *classesLayout = new QVBoxLayout(classesGroup);
 
-    m_classesTable = new QTableWidget(0, 3);
-    m_classesTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("Year")});
+    m_classesTable = new QTableWidget(0, 4);
+    m_classesTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("Year"), tr("Students")});
     m_classesTable->setColumnWidth(1, 220); // Name column wider
     m_classesTable->setColumnWidth(2, 80);  // Year column narrower
+    m_classesTable->setColumnWidth(3, 80);  // Students column
     m_classesTable->horizontalHeader()->setStretchLastSection(true);
     m_classesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_classesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_classesTable->setAlternatingRowColors(true);
+    m_classesTable->setSortingEnabled(true);
     classesLayout->addWidget(m_classesTable);
 
     QHBoxLayout *classBtnLayout = new QHBoxLayout();
     m_addClassButton = new QPushButton(tr("Add Class"));
     m_editClassButton = new QPushButton(tr("Edit Class"));
     m_removeClassButton = new QPushButton(tr("Remove Class"));
-    // m_refreshClassesButton removed
+    m_gradeBookButton = new QPushButton(tr("Grade Book"));
+    m_gradeBookButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
     classBtnLayout->addWidget(m_addClassButton);
     classBtnLayout->addWidget(m_editClassButton);
     classBtnLayout->addWidget(m_removeClassButton);
+    classBtnLayout->addWidget(m_gradeBookButton);
     classBtnLayout->addStretch();
     classesLayout->addLayout(classBtnLayout);
 
@@ -238,6 +244,7 @@ void TupServerWindow::setupClassesTab()
     m_periodsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_periodsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_periodsTable->setAlternatingRowColors(true);
+    m_periodsTable->setSortingEnabled(true);
     periodsLayout->addWidget(m_periodsTable);
 
     QHBoxLayout *periodBtnLayout = new QHBoxLayout();
@@ -250,14 +257,14 @@ void TupServerWindow::setupClassesTab()
     periodBtnLayout->addStretch();
     periodsLayout->addLayout(periodBtnLayout);
 
-    layout->addWidget(periodsGroup);
-    layout->addStretch();
+    layout->addWidget(periodsGroup, 1);
 
     // Connect buttons to slots
     connect(m_addClassButton, &QPushButton::clicked, this, &TupServerWindow::onAddClass);
     connect(m_editClassButton, &QPushButton::clicked, this, &TupServerWindow::onEditClass);
     connect(m_removeClassButton, &QPushButton::clicked, this, &TupServerWindow::onRemoveClass);
     connect(m_classesTable, &QTableWidget::doubleClicked, this, &TupServerWindow::onEditClass);
+    connect(m_gradeBookButton, &QPushButton::clicked, this, &TupServerWindow::onOpenGradeBook);
     connect(m_addPeriodButton, &QPushButton::clicked, this, &TupServerWindow::onAddPeriod);
     connect(m_editPeriodButton, &QPushButton::clicked, this, &TupServerWindow::onEditPeriod);
     connect(m_periodsTable, &QTableWidget::doubleClicked, this, &TupServerWindow::onEditPeriod);
@@ -358,7 +365,6 @@ void TupServerWindow::setupStudentsTab()
     QGroupBox *registeredGroup = new QGroupBox(tr("Registered Students"));
     QVBoxLayout *registeredLayout = new QVBoxLayout(registeredGroup);
 
-    // Filter line edit
     m_studentFilterEdit = new QLineEdit();
     m_studentFilterEdit->setPlaceholderText(tr("Filter students by student name, name, or class..."));
     registeredLayout->addWidget(m_studentFilterEdit);
@@ -374,42 +380,30 @@ void TupServerWindow::setupStudentsTab()
     m_registeredStudentsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_registeredStudentsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_registeredStudentsTable->setAlternatingRowColors(true);
-    m_registeredStudentsTable->setColumnHidden(0, true); // Hide ID column
-
+    m_registeredStudentsTable->setSortingEnabled(true);
+    m_registeredStudentsTable->setColumnHidden(0, true);
     registeredLayout->addWidget(m_registeredStudentsTable);
 
-    // Enable double-click to edit student
     connect(m_registeredStudentsTable, &QTableWidget::itemDoubleClicked, this, &TupServerWindow::editStudent);
 
-    // Buttons for student management
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-
     m_addStudentButton = new QPushButton(tr("Add Student"));
-    m_addStudentButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
-    connect(m_addStudentButton, &QPushButton::clicked, this, &TupServerWindow::addStudent);
-    buttonLayout->addWidget(m_addStudentButton);
-
     m_editStudentButton = new QPushButton(tr("Edit Student"));
-    m_editStudentButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    connect(m_editStudentButton, &QPushButton::clicked, this, &TupServerWindow::editStudent);
-    buttonLayout->addWidget(m_editStudentButton);
-
     m_removeStudentButton = new QPushButton(tr("Remove Student"));
-    m_removeStudentButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
-    connect(m_removeStudentButton, &QPushButton::clicked, this, &TupServerWindow::removeStudent);
-    buttonLayout->addWidget(m_removeStudentButton);
-
     m_importCsvButton = new QPushButton(tr("Import Students"));
-    m_importCsvButton->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
-    connect(m_importCsvButton, &QPushButton::clicked, this, &TupServerWindow::importUsersFromCsv);
+    buttonLayout->addWidget(m_addStudentButton);
+    buttonLayout->addWidget(m_editStudentButton);
+    buttonLayout->addWidget(m_removeStudentButton);
     buttonLayout->addWidget(m_importCsvButton);
     buttonLayout->addStretch();
-
-    // m_refreshStudentsButton removed
-    // buttonLayout->addWidget(m_refreshStudentsButton);
-
     registeredLayout->addLayout(buttonLayout);
-    layout->addWidget(registeredGroup);
+
+    layout->addWidget(registeredGroup, 1);
+
+    connect(m_addStudentButton, &QPushButton::clicked, this, &TupServerWindow::addStudent);
+    connect(m_editStudentButton, &QPushButton::clicked, this, &TupServerWindow::editStudent);
+    connect(m_removeStudentButton, &QPushButton::clicked, this, &TupServerWindow::removeStudent);
+    connect(m_importCsvButton, &QPushButton::clicked, this, &TupServerWindow::importUsersFromCsv);
 
     // Note: Student list will be loaded when server starts (database must be open first)
 }
@@ -446,6 +440,7 @@ void TupServerWindow::setupProjectsTab()
     m_projectsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_projectsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_projectsTable->setAlternatingRowColors(true);
+    m_projectsTable->setSortingEnabled(true);
     m_projectsTable->setColumnHidden(0, true); // Hide ID column
     connect(m_projectsTable, &QTableWidget::itemSelectionChanged, this, &TupServerWindow::onProjectSelectionChanged);
     connect(m_projectsTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
@@ -503,7 +498,7 @@ void TupServerWindow::setupProjectsTab()
 
 
     projectsLayout->addLayout(projectButtonLayout);
-    layout->addWidget(projectsGroup);
+    layout->addWidget(projectsGroup, 1);
 
     // Collaborators Section
     QGroupBox *collaboratorsGroup = new QGroupBox(tr("Project Collaborators"));
@@ -533,6 +528,11 @@ void TupServerWindow::setupLogsTab()
     m_logView->setStyleSheet("QTextEdit { font-family: 'Courier New', monospace; font-size: 12px; }");
     layout->addWidget(m_logView);
 
+    m_logPathLabel = new QLabel();
+    m_logPathLabel->setStyleSheet("color: gray; font-size: 11px;");
+    m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(m_logPathLabel);
+
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     buttonLayout->addStretch();
 
@@ -546,6 +546,16 @@ void TupServerWindow::setupLogsTab()
 void TupServerWindow::setupSettingsTab()
 {
     QVBoxLayout *layout = new QVBoxLayout(m_settingsTab);
+
+    // Admin User settings
+    QGroupBox *adminGroup = new QGroupBox(tr("Admin User"));
+    QFormLayout *adminLayout = new QFormLayout(adminGroup);
+
+    m_teacherNameEdit = new QLineEdit();
+    m_teacherNameEdit->setPlaceholderText(tr("e.g. Ms. Johnson"));
+    adminLayout->addRow(tr("Teacher Name:"), m_teacherNameEdit);
+
+    layout->addWidget(adminGroup);
 
     // Connection settings
     QGroupBox *connectionGroup = new QGroupBox(tr("Connection Settings"));
@@ -605,6 +615,21 @@ void TupServerWindow::setupSettingsTab()
     m_renderPathLabel = new QLabel();
     m_renderPathLabel->setStyleSheet("color: gray;");
     storageLayout->addRow(tr("Render:"), m_renderPathLabel);
+
+    // Log Path - where the server log file is written
+    QHBoxLayout *logPathLayout = new QHBoxLayout();
+    m_logPathEdit = new QLineEdit();
+    m_logPathEdit->setPlaceholderText(QDir::tempPath());
+    logPathLayout->addWidget(m_logPathEdit);
+    m_browseLogPathButton = new QPushButton(tr("Browse..."));
+    connect(m_browseLogPathButton, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(this, tr("Select Log Directory"),
+                                                         m_logPathEdit->text());
+        if (!dir.isEmpty())
+            m_logPathEdit->setText(dir);
+    });
+    logPathLayout->addWidget(m_browseLogPathButton);
+    storageLayout->addRow(tr("Log Path:"), logPathLayout);
 
     layout->addWidget(storageGroup);
 

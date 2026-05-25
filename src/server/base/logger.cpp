@@ -121,20 +121,9 @@ void Logger::fatal(const QString &log)
 void Logger::write(const QByteArray &msg)
 {
     if (!m_file.fileName().isEmpty()) {
-#ifdef TUP_DEBUG
-        qDebug() << "[Logger::write] About to open file:" << m_file.fileName()
-                 << "isOpen:" << m_file.isOpen()
-                 << "exists:" << QFile::exists(m_file.fileName());
-#endif
         if (m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-#ifdef TUP_DEBUG
-            qDebug() << "[Logger::write] File opened successfully:" << m_file.fileName();
-#endif
             m_file.write(msg.data(), msg.size());
             m_file.close();
-#ifdef TUP_DEBUG
-            qDebug() << "[Logger::write] File closed:" << m_file.fileName();
-#endif
         } else {
 #ifdef TUP_DEBUG
             qDebug() << "[Logger::write] Failed to open log file:" << m_file.fileName() << ", error:" << m_file.errorString();
