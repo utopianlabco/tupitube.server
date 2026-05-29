@@ -8,6 +8,8 @@ TARGET = ../../bin/tupitube.server.bin
 CONFIG += release warn_on
 TEMPLATE = app
 
+DEFINES += TUPITUBE_SERVER_VERSION=0.1
+
 HEADERS += tupserverwindow.h \
            tservertheme.h \
            firstlaunchwizard.h \

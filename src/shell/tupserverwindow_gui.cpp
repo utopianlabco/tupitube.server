@@ -164,10 +164,11 @@ void TupServerWindow::setupMenuBar()
     aboutAction->setMenuRole(QAction::AboutRole);
     connect(aboutAction, &QAction::triggered, this, [this]() {
         QMessageBox::about(this, tr("About TupiTube Server"),
-            tr("<h3>TupiTube Server</h3>"
-               "<p>A collaboration server for TupiTube Desk.</p>"
-               "<p>Allows multiple artists to work on the same animation project in real-time.</p>"
-               "<p>Website: <a href='http://www.tupitube.com'>www.tupitube.com</a></p>"));
+            QString("<h3>TupiTube Server %1</h3>"
+                    "<p>A collaboration server for TupiTube Desk.</p>"
+                    "<p>Allows multiple artists to work on the same animation project in real-time.</p>"
+                    "<p>Website: <a href='http://www.tupitube.com'>www.tupitube.com</a></p>")
+            .arg(QT_STRINGIFY(TUPITUBE_SERVER_VERSION)));
     });
 }
 
