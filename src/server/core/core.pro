@@ -1,10 +1,16 @@
-INSTALLS += target 
-
-target.path = /lib
+unix {
+    INSTALLS += target
+    target.path = /lib
+}
 
 TEMPLATE = lib
 CONFIG += warn_on dll
 QT += network sql
+
+win32 {
+    CONFIG -= dll
+    CONFIG += staticlib
+}
 
 INCLUDEPATH += ../modules/students ../modules/backups ../modules/ban ../modules/communications
 

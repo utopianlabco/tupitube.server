@@ -1,4 +1,6 @@
 
 INCLUDEPATH += $$PACKAGES_DIR
 
-LIBS += -L$$PACKAGES_DIR -lserverpackage
+unix {
+    LIBS += -L$$PACKAGES_DIR -lserverpackage
+}

@@ -1,5 +1,7 @@
-INSTALLS += target
-target.path = /lib
+unix {
+    INSTALLS += target
+    target.path = /lib
+}
 
 HEADERS += chatparser.h \
            importprojectparser.h \
@@ -36,5 +38,10 @@ SOURCES += chatparser.cpp \
 #CONFIG += release warn_on staticlib
 CONFIG += warn_on dll
 TEMPLATE = lib
+
+win32 {
+    CONFIG -= dll
+    CONFIG += staticlib
+}
 
 include(./parsers_config.pri)

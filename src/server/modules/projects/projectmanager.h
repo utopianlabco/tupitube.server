@@ -49,6 +49,8 @@
 #include <QHash>
 #include <QList>
 
+class Connection;
+
 class ProjectManager : public Observer
 {
     Q_OBJECT

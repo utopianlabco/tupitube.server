@@ -34,8 +34,9 @@
 #ifndef PACKAGEBASE_H
 #define PACKAGEBASE_H
 
-#include "connection.h"
 #include <QString>
+
+class Connection;
 
 class PackageBase
 {

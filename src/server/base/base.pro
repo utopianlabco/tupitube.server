@@ -1,8 +1,15 @@
-INSTALLS += target
-target.path = /lib
+unix {
+    INSTALLS += target
+    target.path = /lib
+}
 
 TEMPLATE = lib
 CONFIG += warn_on dll
+
+win32 {
+    CONFIG -= dll
+    CONFIG += staticlib
+}
 
 INCLUDEPATH += ../core ../packages ../modules/students
 

@@ -40,7 +40,7 @@
 
 class QuaZip;
 
-class TUPITUBE_EXPORT PackageHandler
+class PackageHandler
 {
     public:
         PackageHandler();

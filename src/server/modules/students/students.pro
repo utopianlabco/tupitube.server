@@ -1,9 +1,16 @@
-INSTALLS += target
-target.path = /lib
+unix {
+    INSTALLS += target
+    target.path = /lib
+}
 
 TEMPLATE = lib
 CONFIG += warn_on dll
 QT += sql
+
+win32 {
+    CONFIG -= dll
+    CONFIG += staticlib
+}
 
 HEADERS += student.h \
            studentmanager.h \

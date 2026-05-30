@@ -1,5 +1,7 @@
-INSTALLS += target
-target.path = /lib
+unix {
+    INSTALLS += target
+    target.path = /lib
+}
 
 TEMPLATE = lib
 CONFIG += warn_on dll
@@ -24,7 +26,9 @@ unix {
     LIBS += -L/usr/local/quazip/lib -lquazip1-qt5
 }
 win32 {
-    include(../../quazip.win.pri)
+    CONFIG -= dll
+    CONFIG += staticlib
+    include(../../../../quazip.win.pri)
 }
 
 LIB_DIR = ../../../lib

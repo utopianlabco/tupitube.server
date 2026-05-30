@@ -34,9 +34,9 @@
 #ifndef _SERVER_H__
 #define _SERVER_H__
 
-#include "../modules/students/student.h"
 #include "observer.h"
-#include "../modules/students/studentmanager.h"
+
+class StudentManager;
 
 #include <QStringList>
 #include <QTcpServer>

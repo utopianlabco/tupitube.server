@@ -1385,7 +1385,7 @@ void TupServerWindow::manageCollaborators()
             if (!initialCollabIds.contains(id))
                 m_dbHandler->addCollaborator(projectId, id);
         }
-        for (int id : std::as_const(initialCollabIds)) {
+        for (int id : qAsConst(initialCollabIds)) {
             if (!finalCollabIds.contains(id))
                 m_dbHandler->removeCollaborator(projectId, id);
         }

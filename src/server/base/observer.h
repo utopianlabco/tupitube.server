@@ -34,8 +34,9 @@
 #ifndef OBSERVER_H
 #define OBSERVER_H
 
-#include "connection.h"
+#include <QObject>
 
+class Connection;
 class PackageBase;
 
 class Observer : public QObject

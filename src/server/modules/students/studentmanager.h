@@ -39,6 +39,9 @@
 #include <QString>
 #include <QtSql>
 
+class Connection;
+class Student;
+
 class StudentManager : public Observer
 {
     Q_OBJECT

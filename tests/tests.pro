@@ -81,7 +81,11 @@ HEADERS += \
     ../src/server/core/socketbase.h \
     ../src/server/modules/students/studentmanager.h \
     ../src/server/modules/projects/projectmanager.h \
-    ../src/server/modules/communications/communicationmanager.h
+    ../src/server/modules/communications/communicationmanager.h \
+    ../src/server/modules/projects/filemanager.h \
+    ../src/server/modules/projects/netproject.h \
+    ../src/server/modules/projects/projectrenderer.h \
+    ../src/lib/genericexportplugin.h
 
 SOURCES += \
     ../src/server/base/logger.cpp \
@@ -98,6 +102,8 @@ SOURCES += \
     ../src/server/modules/projects/netproject.cpp \
     ../src/server/modules/projects/packagehandler.cpp \
     ../src/server/modules/projects/projectmanager.cpp \
+    ../src/server/modules/projects/projectrenderer.cpp \
+    ../src/lib/genericexportplugin.cpp \
     ../src/server/modules/students/ack.cpp \
     ../src/server/modules/students/ban.cpp \
     ../src/server/modules/students/student.cpp \
@@ -127,9 +133,15 @@ SOURCES += \
 # ──────────────────────────────────────────────────────────────────────────────
 # Libraries
 # ──────────────────────────────────────────────────────────────────────────────
-LIBS += -L/usr/local/quazip/lib -lquazip1-qt5
-LIBS += -L/usr/local/ffmpeg/lib -lavformat -lavcodec -lavutil -lswscale
-LIBS += -L../src/server/modules/projects -lprojects
+unix {
+    LIBS += -L/usr/local/quazip/lib -lquazip1-qt5
+    LIBS += -L/usr/local/ffmpeg/lib -lavformat -lavcodec -lavutil -lswscale
+    LIBS += -L../src/server/modules/projects -lprojects
+}
+win32 {
+    include(../quazip.win.pri)
+    include(../ffmpeg.win.pri)
+}
 
 QMAKE_LFLAGS += \
     -Wl,-rpath,$$PWD/../src/lib \

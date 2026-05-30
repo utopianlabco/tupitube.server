@@ -59,6 +59,9 @@ unix {
 
 # Windows-specific configuration
 win32 {
+    # Embed application icon into the executable
+    RC_ICONS = data/icons/app_icon.ico
+
     # Include Windows configuration
     include(../../win.pri)
     include(../../quazip.win.pri)
