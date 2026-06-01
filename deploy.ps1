@@ -144,6 +144,7 @@ $ffmpegDlls = @(
     "avformat-61.dll",
     "avdevice-61.dll",
     "avfilter-10.dll",
+    "postproc-58.dll",
     "swresample-5.dll",
     "swscale-8.dll"
 )

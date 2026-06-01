@@ -357,15 +357,22 @@ int main(int argc, char *argv[])
 
     QString pluginDir = QString::fromLocal8Bit(::getenv("TUPI_PLUGIN"));
     if (pluginDir.isEmpty()) {
-        // Fallback: use TUPITUBE_HOME/lib/tupitube/plugins
-        QString tupitubeHome = QString::fromLocal8Bit(::getenv("TUPITUBE_HOME"));
-        if (!tupitubeHome.isEmpty()) {
-            pluginDir = tupitubeHome + "/lib/tupitube/plugins";
+        QString serverHome = QString::fromLocal8Bit(::getenv("TUPITUBE_SERVER_HOME"));
+        if (!serverHome.isEmpty()) {
+            #ifdef Q_OS_WIN
+                pluginDir = serverHome + "/plugins";
+            #else
+                pluginDir = serverHome + "/lib/tupitube/plugins";
+            #endif
         } else {
             #ifdef Q_OS_WIN
                 pluginDir = QCoreApplication::applicationDirPath() + "/plugins";
             #else
-                pluginDir = "/usr/lib/tupitube/plugins";
+                QString tupitubeHome = QString::fromLocal8Bit(::getenv("TUPITUBE_HOME"));
+                if (!tupitubeHome.isEmpty())
+                    pluginDir = tupitubeHome + "/lib/tupitube/plugins";
+                else
+                    pluginDir = "/usr/lib/tupitube/plugins";
             #endif
         }
     }
