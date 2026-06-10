@@ -38,6 +38,7 @@
 
 #include <QString>
 
+class QFileInfo;
 class QuaZip;
 
 class PackageHandler
@@ -45,17 +46,20 @@ class PackageHandler
     public:
         PackageHandler();
         ~PackageHandler();
-        
+
         bool makePackage(const QString &projectPath, const QString &packagePath, const QString &uid);
         bool importPackage(const QString &packagePath, const QString &uid);
-        
+
         QString importedProjectPath() const;
-        
+
     private:
         bool compress(QuaZip *zip, const QString &path);
-        QString stripRepositoryFromPath(QString path);
+        bool addFileToZip(QuaZip *zip, const QFileInfo &fileInfo);
+        QString archiveEntryName(const QString &filePath) const;
+        QString stripRepositoryFromPath(const QString &path) const;
         bool createPath(const QString &filePath);
-        
+        bool isSafeArchiveEntryName(const QString &entryName) const;
+
     private:
         QString m_importedProjectPath;
         QString m_uid;

@@ -355,9 +355,11 @@ int main(int argc, char *argv[])
         qWarning() << "[main.cpp] Data path:" << dataPath;
     #endif
 
-    QString pluginDir = QString::fromLocal8Bit(::getenv("TUPI_PLUGIN"));
+    QString pluginDir = QString::fromLocal8Bit(::getenv("TUPITUBE_PLUGIN"));
+
     if (pluginDir.isEmpty()) {
         QString serverHome = QString::fromLocal8Bit(::getenv("TUPITUBE_SERVER_HOME"));
+
         if (!serverHome.isEmpty()) {
             #ifdef Q_OS_WIN
                 pluginDir = serverHome + "/plugins";

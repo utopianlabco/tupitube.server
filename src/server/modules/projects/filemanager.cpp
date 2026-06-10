@@ -40,7 +40,123 @@
 #include "tapplicationproperties.h"
 
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QDebug>
+#include <QDomDocument>
+#include <QTextStream>
+
+namespace {
+
+QString cleanBasePath(const QString &path)
+{
+    QString cleanPath = QDir::cleanPath(path);
+    while (cleanPath.endsWith('/') || cleanPath.endsWith('\\'))
+        cleanPath.chop(1);
+    return cleanPath;
+}
+
+QString studentPathFor(int uid)
+{
+    const QString repoDir = cleanBasePath(kAppProp->repositoryDir());
+    return QDir(repoDir).filePath(QString::number(uid));
+}
+
+QString studentPathFor(const QString &uid)
+{
+    const QString repoDir = cleanBasePath(kAppProp->repositoryDir());
+    return QDir(repoDir).filePath(uid);
+}
+
+QString projectDirectoryPath(const QString &studentPath, const QString &filename)
+{
+    return QDir(QDir(studentPath).filePath("projects")).filePath(filename);
+}
+
+QString projectPackagePath(const QString &studentPath, const QString &filename)
+{
+    return QDir(projectDirectoryPath(studentPath, filename)).filePath(filename + ".tup");
+}
+
+QString cacheRootPathFor(const QString &uid)
+{
+    const QString cacheBase = cleanBasePath(CACHE_DIR);
+    return QDir(cacheBase).filePath(uid);
+}
+
+QString cacheProjectPathFor(const QString &uid, const QString &filename)
+{
+    return QDir(cacheRootPathFor(uid)).filePath(filename);
+}
+
+bool createStudentDirectories(const QString &studentPath)
+{
+    QDir dir;
+
+    if (!dir.mkpath(QDir(studentPath).filePath("projects")))
+        return false;
+
+    if (!dir.mkpath(QDir(QDir(studentPath).filePath("animations")).filePath("thumbnails")))
+        return false;
+
+    if (!dir.mkpath(QDir(QDir(studentPath).filePath("storyboards")).filePath("thumbnails")))
+        return false;
+
+    if (!dir.mkpath(QDir(QDir(studentPath).filePath("images")).filePath("thumbnails")))
+        return false;
+
+    return true;
+}
+
+bool writeXmlFile(const QString &filePath, const QDomDocument &doc)
+{
+    QFile file(filePath);
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[FileManager] - Fatal Error: Can't create file -> " << filePath
+                        << " - Description: " << file.errorString();
+        #endif
+        return false;
+    }
+
+    QTextStream ts(&file);
+    ts << doc.toString();
+    file.close();
+
+    return true;
+}
+
+bool saveProjectFiles(const QString &cachePath, NetProject *project)
+{
+    QDir cacheDir(cachePath);
+
+    QDomDocument projectDoc;
+    projectDoc.appendChild(project->toXml(projectDoc));
+    if (!writeXmlFile(cacheDir.filePath("project.tpp"), projectDoc))
+        return false;
+
+    int index = 0;
+    foreach (TupScene *scene, project->getScenes()) {
+        QDomDocument sceneDoc;
+        sceneDoc.appendChild(scene->toXml(sceneDoc));
+
+        const QString scenePath = cacheDir.filePath("scene" + QString::number(index) + ".tps");
+        if (!writeXmlFile(scenePath, sceneDoc))
+            return false;
+
+        index += 1;
+    }
+
+    QDomDocument libraryDoc;
+    libraryDoc.appendChild(project->getLibrary()->toXml(libraryDoc));
+    if (!writeXmlFile(cacheDir.filePath("library.tpl"), libraryDoc))
+        return false;
+
+    return true;
+}
+
+} // namespace
 
 FileManager::FileManager() : QObject()
 {
@@ -56,68 +172,39 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
         qDebug() << "[FileManager::save()]";
     #endif
 
-    // Ensure repositoryDir doesn't have trailing slash before building path
-    QString repoDir = kAppProp->repositoryDir();
-    if (repoDir.endsWith("/"))
-        repoDir.chop(1);
-    QString studentPath = repoDir + "/" + QString::number(uid) + "/";
-
-    QDir repository(studentPath);
-    if (!repository.exists()) {
+    if (!project) {
         #ifdef TUP_DEBUG
-            qWarning() << "[FileManager::save()] - Creating student directories:" << studentPath;
+            qDebug() << "[FileManager::save()] - Fatal Error: Null project pointer";
         #endif
-        // Use mkpath to create the entire directory tree recursively
-        bool ok = repository.mkpath(studentPath + "projects");
-        ok = ok && repository.mkpath(studentPath + "animations/thumbnails");
-        ok = ok && repository.mkpath(studentPath + "storyboards/thumbnails");
-        ok = ok && repository.mkpath(studentPath + "images/thumbnails");
-
-        #ifdef TUP_DEBUG
-            if (ok)
-                qWarning() << "[FileManager::save()] - Student directories created successfully!";
-            else
-                qDebug() << "[FileManager::save()] - Failed to create student directories!";
-        #endif
-        
-        if (!ok)
-            return false;
+        return false;
     }
 
-    // Use filename as the subfolder (consistent with load path)
-    QString absolutePath = studentPath + "projects/" + filename + "/" + filename + ".tup";
-    QDir projectDir(studentPath + "projects/" + filename);
-    if (!projectDir.exists()) {
-        if (!projectDir.mkpath(projectDir.path())) {
-            #ifdef TUP_DEBUG
-                qDebug() << "[FileManager::save()] - Failed to create project_id directory!";
-            #endif
-            return false;
-        }
+    const QString uidText = QString::number(uid);
+    const QString studentPath = studentPathFor(uid);
+
+    if (!createStudentDirectories(studentPath)) {
+        #ifdef TUP_DEBUG
+            qDebug() << "[FileManager::save()] - Failed to create student directories!";
+        #endif
+        return false;
     }
 
-    // Ensure CACHE_DIR doesn't have trailing slash before adding uid
-    QString cacheBase = CACHE_DIR;
-    if (cacheBase.endsWith("/"))
-        cacheBase.chop(1);
-    QString cachePath = cacheBase + "/" + QString::number(uid);
+    const QString projectPath = projectDirectoryPath(studentPath, filename);
+    QDir projectDir(projectPath);
+    if (!projectDir.exists() && !projectDir.mkpath(projectDir.path())) {
+        #ifdef TUP_DEBUG
+            qDebug() << "[FileManager::save()] - Failed to create project directory -> " << projectPath;
+        #endif
+        return false;
+    }
+
+    const QString absolutePath = projectPackagePath(studentPath, filename);
+    const QString cachePath = cacheProjectPathFor(uidText, filename);
     QDir cacheDir(cachePath);
 
     if (!cacheDir.exists()) {
-        if (!cacheDir.mkpath(cacheDir.path())) {
-            #ifdef TUP_DEBUG
-                   qDebug() << "[FileManager::save()] - Fatal Error: Can't create path -> " << cacheDir.path();
-            #endif
-            return false;
-        } 
-    }
-
-    cachePath = cacheDir.path() + "/" + filename;
-    cacheDir = QDir(cachePath);
-
-    if (!cacheDir.exists()) {
         #ifdef TUP_DEBUG
-               qWarning() << "[FileManager::save()] - Creating project directory -> " << cacheDir.path();
+               qWarning() << "[FileManager::save()] - Creating project cache directory -> " << cacheDir.path();
         #endif
 
         if (!cacheDir.mkpath(cacheDir.path())) {
@@ -125,78 +212,14 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
                    qDebug() << "[FileManager::save()] - Result: Epic Fail!";
             #endif
             return false;
-        } else {
-            #ifdef TUP_DEBUG
-                   qWarning() << "[FileManager::save()] - Result: Successful!";
-            #endif
         }
     }
 
-    {
-     // Save project
-     QString tppPath = cacheDir.path() + QDir::separator() + "project.tpp";
-     QFile projectFile(tppPath);
-
-     if (projectFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-         QTextStream ts(&projectFile);
-         QDomDocument doc;
-         // project->setProjectName(name);
-         doc.appendChild(project->toXml(doc));
-         ts << doc.toString();
-         projectFile.close();
-     } else {
-         #ifdef TUP_DEBUG
-                qDebug() << "[FileManager::save()] - Fatal Error: Can't create file -> " << tppPath;
-         #endif
-     }
-    }
-
-    // Save scenes
-    {
-     int index = 0;
-     // foreach (TupScene *scene, project->scenes().values()) {
-     foreach (TupScene *scene, project->getScenes()) {
-              QDomDocument doc;
-              doc.appendChild(scene->toXml(doc));
-
-              QString tpsPath = cacheDir.path() + QDir::separator() + "scene" + QString::number(index) + ".tps";
-              QFile sceneFile(tpsPath);
-
-              if (sceneFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                  QTextStream st(&sceneFile);
-                  st << doc.toString();
-                  index += 1;
-                  sceneFile.close();
-              } else {
-                  #ifdef TUP_DEBUG
-                         qDebug() << "[FileManager::save()] - Fatal Error: Can't create file -> " << tpsPath;
-                  #endif
-              }
-     }
-    }
-
-    {
-     // Save library
-     QString tplPath = cacheDir.path() + QDir::separator() + "library.tpl";
-     QFile libraryFile(tplPath);
-
-     if (libraryFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-         QTextStream ts(&libraryFile);
-
-         QDomDocument doc;
-         doc.appendChild(project->getLibrary()->toXml(doc));
-
-         ts << doc.toString();
-         libraryFile.close();
-     } else {
-         #ifdef TUP_DEBUG
-                qDebug() << "[FileManager::save()] - Fatal Error: Can't create file -> " << tplPath;
-         #endif
-     }
-    }
+    if (!saveProjectFiles(cacheDir.path(), project))
+        return false;
 
     PackageHandler packageHandler;
-    bool isOk = packageHandler.makePackage(cacheDir.path(), absolutePath, QString::number(uid));
+    const bool isOk = packageHandler.makePackage(cacheDir.path(), absolutePath, uidText);
 
     #ifdef TUP_DEBUG
            qWarning() << "[FileManager::save()] - Saving project to -> " << absolutePath;
@@ -221,26 +244,27 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
         qDebug() << "[FileManager::load()]";
     #endif
 
-    // Ensure repositoryDir doesn't have trailing slash before building path
-    QString repoDir = kAppProp->repositoryDir();
-    if (repoDir.endsWith("/"))
-        repoDir.chop(1);
-    // Use filename as the subfolder (matches the path used during save)
-    QString absolutePath = repoDir + "/" + uid + "/projects/" + filename + "/" + filename + ".tup";
+    if (!project) {
+        #ifdef TUP_DEBUG
+            qDebug() << "[FileManager::load()] - Fatal Error: Null project pointer";
+        #endif
+        return false;
+    }
+
+    const QString studentPath = studentPathFor(uid);
+    const QString absolutePath = projectPackagePath(studentPath, filename);
 
     #ifdef TUP_DEBUG
-        qWarning() << "[FileManager::load()] - filename ->" + filename;
-        qWarning() << "[FileManager::load()] - Loading project ->" << absolutePath;
+        qWarning() << "[FileManager::load()] - Loading project -> " << absolutePath;
     #endif
 
     PackageHandler packageHandler;
 
     if (packageHandler.importPackage(absolutePath, uid)) {
-        // Clear any default scenes created by NetProject constructor
         project->clear();
 
         QDir projectDir(packageHandler.importedProjectPath());
-        QFile tppFile(projectDir.path() + QDir::separator() + "project.tpp");
+        QFile tppFile(projectDir.filePath("project.tpp"));
 
         if (tppFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             project->fromXml(QString::fromLocal8Bit(tppFile.readAll()));
@@ -256,52 +280,53 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
         }
 
         project->setDataDir(packageHandler.importedProjectPath());
-        project->loadLibrary(projectDir.path() + QDir::separator() + "library.tpl");
+        project->loadLibrary(projectDir.filePath("library.tpl"));
 
-        QStringList scenes = projectDir.entryList(QStringList() << "*.tps", QDir::Readable | QDir::Files);
+        const QStringList scenes = projectDir.entryList(QStringList() << "*.tps",
+                                                        QDir::Readable | QDir::Files,
+                                                        QDir::Name);
 
         if (scenes.count() > 0) {
-
             int index = 0;
-            foreach (QString scenePath, scenes) {
-                     scenePath = projectDir.path() + QDir::separator() + scenePath;
 
-                     QFile file(scenePath);
+            foreach (QString sceneFileName, scenes) {
+                const QString scenePath = projectDir.filePath(sceneFileName);
+                QFile file(scenePath);
 
-                     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                         QString xml = QString::fromLocal8Bit(file.readAll());
-                         QDomDocument document;
-                         if (! document.setContent(xml))
-                             return false;
-                         QDomElement root = document.documentElement();
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    const QString xml = QString::fromLocal8Bit(file.readAll());
+                    QDomDocument document;
 
-                         #ifdef TUP_DEBUG
-                                qWarning() << "[FileManager::load()] - Loading scene " << root.attribute("name");
-                         #endif
+                    if (!document.setContent(xml))
+                        return false;
 
-                         TupScene *scene = project->createScene(root.attribute("name"), index, true);
-                         scene->fromXml(xml);
+                    QDomElement root = document.documentElement();
 
-                         index += 1;
-                         file.close();
-                     } else {
-                         #ifdef TUP_DEBUG
-                                qDebug() << "[FileManager::load()] - Fatal Error: Can't open file -> " << scenePath;
-                         #endif
-                         return false;
-                     }
+                    #ifdef TUP_DEBUG
+                           qWarning() << "[FileManager::load()] - Loading scene " << root.attribute("name");
+                    #endif
+
+                    TupScene *scene = project->createScene(root.attribute("name"), index, true);
+                    scene->fromXml(xml);
+
+                    index += 1;
+                    file.close();
+                } else {
+                    #ifdef TUP_DEBUG
+                           qDebug() << "[FileManager::load()] - Fatal Error: Can't open file -> " << scenePath;
+                    #endif
+                    return false;
+                }
             }
 
             project->setOpen(true);
-
             return true;
-
-        } else {
-            #ifdef TUP_DEBUG
-                   qDebug() << "[FileManager::load()] - Fatal Error: No scene files found (*.tps)";
-            #endif
-            return false;
         }
+
+        #ifdef TUP_DEBUG
+               qDebug() << "[FileManager::load()] - Fatal Error: No scene files found (*.tps)";
+        #endif
+        return false;
     }
 
     #ifdef TUP_DEBUG
@@ -321,11 +346,15 @@ bool FileManager::removeCacheDir(const QString &path)
     QDir dir(path);
 
     if (dir.exists(path)) {
+        const QString cacheRoot = QFileInfo(CACHE_DIR).canonicalFilePath();
+
         Q_FOREACH(QFileInfo info, dir.entryInfoList(QDir::NoDotAndDotDot | QDir::System | QDir::Hidden
                                                     | QDir::AllDirs | QDir::Files, QDir::DirsFirst)) {
             if (info.isDir()) {
-                QString subDir = info.absoluteFilePath();
-                if (CACHE_DIR.compare(subDir) != 0) {
+                const QString subDir = info.absoluteFilePath();
+                const QString canonicalSubDir = QFileInfo(subDir).canonicalFilePath();
+
+                if (cacheRoot.isEmpty() || canonicalSubDir != cacheRoot) {
                     result = removeCacheDir(subDir);
                 } else {
                     #ifdef TUP_DEBUG
@@ -340,6 +369,7 @@ bool FileManager::removeCacheDir(const QString &path)
             if (!result)
                 return result;
         }
+
         result = dir.rmdir(path);
     }
 
@@ -356,12 +386,11 @@ bool FileManager::createEmptyProjectFile(const QString &projectName, const QStri
 {
     #ifdef TUP_DEBUG
         qDebug() << "[FileManager::createEmptyProjectFile()]";
-        qWarning() << "[FileManager::createEmptyProjectFile()] - Creating project ->" << projectName;
-        qWarning() << "[FileManager::createEmptyProjectFile()] - Owner ID ->" << ownerId;
-        qWarning() << "[FileManager::createEmptyProjectFile()] - Filename ->" << filename;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Creating project:" << projectName;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Owner ID:" << ownerId;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Filename:" << filename;
     #endif
 
-    // Create the project structure
     NetProject *project = new NetProject();
     project->setProjectName(projectName);
     project->setDescription(description);
@@ -372,111 +401,48 @@ bool FileManager::createEmptyProjectFile(const QString &projectName, const QStri
     project->setOwner(ownerId);
     project->setOpen(true);
 
-    // Create student directories
-    QString repoDir = kAppProp->repositoryDir();
-    if (repoDir.endsWith("/"))
-        repoDir.chop(1);
-    QString studentPath = repoDir + "/" + QString::number(ownerId) + "/";
+    const QString uidText = QString::number(ownerId);
+    const QString studentPath = studentPathFor(ownerId);
 
-    QDir repository(studentPath);
-    if (!repository.exists()) {
+    if (!createStudentDirectories(studentPath)) {
         #ifdef TUP_DEBUG
-            qWarning() << "[FileManager::createEmptyProjectFile()] - Creating student directories:" << studentPath;
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create student directories!";
         #endif
-        bool ok = repository.mkpath(studentPath + "projects");
-        ok = ok && repository.mkpath(studentPath + "animations/thumbnails");
-        ok = ok && repository.mkpath(studentPath + "storyboards/thumbnails");
-        ok = ok && repository.mkpath(studentPath + "images/thumbnails");
-
-        if (!ok) {
-            #ifdef TUP_DEBUG
-                qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create student directories!";
-            #endif
-            delete project;
-            return false;
-        }
+        delete project;
+        return false;
     }
 
-    // Create cache directory for project
-    QString cacheBase = CACHE_DIR;
-    if (cacheBase.endsWith("/"))
-        cacheBase.chop(1);
-    QString cachePath = cacheBase + "/" + QString::number(ownerId) + "/" + filename;
+    const QString projectPath = projectDirectoryPath(studentPath, filename);
+    QDir projectDir(projectPath);
+    if (!projectDir.exists() && !projectDir.mkpath(projectDir.path())) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create project directory!";
+        #endif
+        delete project;
+        return false;
+    }
+
+    const QString cachePath = cacheProjectPathFor(uidText, filename);
     QDir cacheDir(cachePath);
 
-    if (!cacheDir.exists()) {
-        if (!cacheDir.mkpath(cachePath)) {
-            #ifdef TUP_DEBUG
-                qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create cache directory!";
-            #endif
-            delete project;
-            return false;
-        }
-    }
-
-    project->setDataDir(cachePath);
-
-    // Save project.tpp
-    QString tppPath = cachePath + "/project.tpp";
-    QFile projectFile(tppPath);
-    if (projectFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream ts(&projectFile);
-        QDomDocument doc;
-        doc.appendChild(project->toXml(doc));
-        ts << doc.toString();
-        projectFile.close();
-    } else {
+    if (!cacheDir.exists() && !cacheDir.mkpath(cacheDir.path())) {
         #ifdef TUP_DEBUG
-            qWarning() << "[FileManager::createEmptyProjectFile()] - Can't create project.tpp";
+            qWarning() << "[FileManager::createEmptyProjectFile()] - Failed to create cache directory!";
         #endif
         delete project;
         return false;
     }
 
-    // Save scene files
-    int index = 0;
-    foreach (TupScene *scene, project->getScenes()) {
-        QDomDocument doc;
-        doc.appendChild(scene->toXml(doc));
+    project->setDataDir(cacheDir.path());
 
-        QString tpsPath = cachePath + "/scene" + QString::number(index) + ".tps";
-        QFile sceneFile(tpsPath);
-
-        if (sceneFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream st(&sceneFile);
-            st << doc.toString();
-            index += 1;
-            sceneFile.close();
-        } else {
-            #ifdef TUP_DEBUG
-                qWarning() << "[FileManager::createEmptyProjectFile()] - Can't create scene file";
-            #endif
-            delete project;
-            return false;
-        }
-    }
-
-    // Save library.tpl
-    QString tplPath = cachePath + "/library.tpl";
-    QFile libraryFile(tplPath);
-    if (libraryFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream ts(&libraryFile);
-        QDomDocument doc;
-        doc.appendChild(project->getLibrary()->toXml(doc));
-        ts << doc.toString();
-        libraryFile.close();
-    } else {
-        #ifdef TUP_DEBUG
-            qWarning() << "[FileManager::createEmptyProjectFile()] - Can't create library.tpl";
-        #endif
+    if (!saveProjectFiles(cacheDir.path(), project)) {
         delete project;
         return false;
     }
 
-    // Package into .tup file
-    QString absolutePath = studentPath + "projects/" + filename + ".tup";
+    const QString absolutePath = projectPackagePath(studentPath, filename);
     PackageHandler packageHandler;
-    bool isOk = packageHandler.makePackage(cachePath, absolutePath, QString::number(ownerId));
+    const bool isOk = packageHandler.makePackage(cacheDir.path(), absolutePath, uidText);
 
     if (isOk) {
         #ifdef TUP_DEBUG

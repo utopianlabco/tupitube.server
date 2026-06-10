@@ -34,12 +34,12 @@
 #include "packagehandler.h"
 #include "quazip.h"
 #include "quazipfile.h"
-#include "tglobal.h"
 #include "tapplicationproperties.h"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QDir>
+#include <QFileInfoList>
 #include <QDebug>
 
 PackageHandler::PackageHandler()
@@ -53,15 +53,15 @@ PackageHandler::~PackageHandler()
 bool PackageHandler::makePackage(const QString &projectPath, const QString &packagePath, const QString &uid)
 {
     m_uid = uid;
+    m_importedProjectPath.clear();
 
-    if (!QFile::exists(projectPath)) {
+    if (!QFileInfo(projectPath).exists()) {
         #ifdef TUP_DEBUG
                qDebug() << "[PackageHandler::makePackage()] - Fatal Error: Project path doesn't exist -> " << projectPath;
         #endif
         return false;
     }
-    
-    QFileInfo packageInfo(packagePath);
+
     QuaZip zip(packagePath);
 
     if (!zip.open(QuaZip::mdCreate)) {
@@ -71,192 +71,250 @@ bool PackageHandler::makePackage(const QString &projectPath, const QString &pack
         return false;
     }
 
-    if (! compress(&zip, projectPath)) {
+    const bool compressed = compress(&zip, projectPath);
+    zip.close();
+
+    if (!compressed) {
         #ifdef TUP_DEBUG
                qDebug() << "[PackageHandler::makePackage()] - Fatal Error: While compressing project: " << zip.getZipError();
         #endif
         return false;
     }
-    
-    zip.close();
 
-    if (zip.getZipError() != 0) {
+    if (zip.getZipError() != UNZ_OK) {
         #ifdef TUP_DEBUG
                qDebug() << "[PackageHandler::makePackage()] - Fatal Error: Description: " << zip.getZipError();
         #endif
         return false;
     }
-    
+
     return true;
 }
 
 bool PackageHandler::compress(QuaZip *zip, const QString &path)
 {
-    QFile inFile;
-    QuaZipFile outFile(zip);
-    char c;
+    QDir dir(path);
+    const QFileInfoList entries = dir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Files,
+                                                    QDir::DirsFirst | QDir::Name);
 
-    QFileInfoList files = QDir(path).entryInfoList();
-    
-    foreach (QFileInfo file, files) {
-             QString filePath = path + QDir::separator() + file.fileName();
+    foreach (const QFileInfo &entry, entries) {
+        if (entry.fileName().startsWith('.'))
+            continue;
 
-             if (file.fileName().startsWith("."))
-                 continue;
-        
-             if (file.isDir()) {
-                 compress(zip, file.path() + QDir::separator() + file.fileName());
-                 continue;
-             }
-        
-             if (!outFile.open(QIODevice::WriteOnly, QuaZipNewInfo(stripRepositoryFromPath(filePath), stripRepositoryFromPath(filePath)))) 
-                 return false;
+        if (entry.isDir()) {
+            if (!compress(zip, entry.absoluteFilePath()))
+                return false;
+            continue;
+        }
 
-             inFile.setFileName(filePath);
-
-             if (!inFile.open(QIODevice::ReadOnly)) {
-                 #ifdef TUP_DEBUG
-                        qDebug() << "[PackageHandler::compress()] - Fatal Error: While opening file ->  " << inFile.fileName() << " - Description: " << inFile.errorString();
-                 #endif
-                 return false;
-             }
-
-             while (inFile.getChar(&c) && outFile.putChar(c)) {};
-        
-             if (outFile.getZipError()!=UNZ_OK)
-                 return false;
-
-             outFile.close();
-
-             if (outFile.getZipError()!=UNZ_OK)
-                 return false;
-
-             inFile.close();
+        if (!addFileToZip(zip, entry))
+            return false;
     }
-    
+
     return true;
 }
 
-QString PackageHandler::stripRepositoryFromPath(QString path)
+bool PackageHandler::addFileToZip(QuaZip *zip, const QFileInfo &fileInfo)
 {
-    // Remove the CACHE_DIR prefix and the uid folder, keeping only project_id/filename
-    QString cacheBase = CACHE_DIR;
-    if (cacheBase.endsWith("/"))
-        cacheBase.chop(1);
-    QString prefix = cacheBase + "/" + m_uid + "/";
-    path.remove(prefix);
+    const QString entryName = archiveEntryName(fileInfo.absoluteFilePath());
 
-    return path;
+    if (entryName.isEmpty()) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[PackageHandler::addFileToZip()] - Fatal Error: Empty ZIP entry for file -> " << fileInfo.absoluteFilePath();
+        #endif
+        return false;
+    }
+
+    QFile inFile(fileInfo.absoluteFilePath());
+    if (!inFile.open(QIODevice::ReadOnly)) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[PackageHandler::addFileToZip()] - Fatal Error: While opening file ->  " << inFile.fileName()
+                        << " - Description: " << inFile.errorString();
+        #endif
+        return false;
+    }
+
+    QuaZipFile outFile(zip);
+    if (!outFile.open(QIODevice::WriteOnly, QuaZipNewInfo(entryName, fileInfo.absoluteFilePath())))
+        return false;
+
+    while (!inFile.atEnd()) {
+        const QByteArray chunk = inFile.read(64 * 1024);
+        if (chunk.isEmpty() && inFile.error() != QFile::NoError)
+            return false;
+
+        if (outFile.write(chunk) != chunk.size())
+            return false;
+    }
+
+    outFile.close();
+    inFile.close();
+
+    return outFile.getZipError() == UNZ_OK;
+}
+
+QString PackageHandler::archiveEntryName(const QString &filePath) const
+{
+    // ZIP entry names are platform-independent and must always use '/'.
+    QString entryName = stripRepositoryFromPath(filePath);
+    entryName = QDir::fromNativeSeparators(entryName);
+
+    while (entryName.startsWith('/'))
+        entryName.remove(0, 1);
+
+    return entryName;
+}
+
+QString PackageHandler::stripRepositoryFromPath(const QString &path) const
+{
+    QString normalizedPath = QDir::fromNativeSeparators(QFileInfo(path).absoluteFilePath());
+
+    QString cacheBase = QDir::fromNativeSeparators(QFileInfo(CACHE_DIR).absoluteFilePath());
+    while (cacheBase.endsWith('/'))
+        cacheBase.chop(1);
+
+    const QString prefix = cacheBase + "/" + m_uid + "/";
+
+    if (normalizedPath.startsWith(prefix))
+        normalizedPath.remove(0, prefix.length());
+
+    return normalizedPath;
 }
 
 bool PackageHandler::importPackage(const QString &packagePath, const QString &uid)
 {
     m_uid = uid;
+    m_importedProjectPath.clear();
 
     QuaZip zip(packagePath);
-    
+
     if (!zip.open(QuaZip::mdUnzip)) {
         #ifdef TUP_DEBUG
-               qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description ->" << zip.getZipError();
+               qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description: " << zip.getZipError();
         #endif
         return false;
     }
 
-    zip.setFileNameCodec("IBM866"); // SQA: What is it? 
-    
+    zip.setFileNameCodec("IBM866"); // SQA: What is it?
+
     QuaZipFile file(&zip);
     QFile out;
-    QString name;
-    char c;
     QuaZipFileInfo info;
 
-    QString cacheDir = CACHE_DIR;
-    if (cacheDir.endsWith("/"))
+    QString cacheDir = QDir::fromNativeSeparators(QFileInfo(CACHE_DIR).absoluteFilePath());
+    while (cacheDir.endsWith('/'))
         cacheDir.chop(1);
+
+    const QString importRoot = QDir(cacheDir).filePath(uid);
+    QDir rootDir(importRoot);
+    if (!rootDir.exists() && !rootDir.mkpath(rootDir.path())) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Can't create import root -> " << importRoot;
+        #endif
+        zip.close();
+        return false;
+    }
 
     bool next = zip.goToFirstFile();
 
     while (next) {
+        if (!zip.getCurrentFileInfo(&info)) {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Can't get current file - Description: " << zip.getZipError();
+            #endif
+            zip.close();
+            return false;
+        }
 
-           if (!zip.getCurrentFileInfo(&info)) {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Can't get current file - Description: " << zip.getZipError();
-               #endif
-               return false;
-           }
-        
-           if (!file.open(QIODevice::ReadOnly)) {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Can't open file - Description: " << file.getZipError();
-               #endif
-               return false;
-           }
-        
-           name = cacheDir + "/" + uid + "/" + file.getActualFileName();
+        if (!file.open(QIODevice::ReadOnly)) {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Can't open file - Description: " << file.getZipError();
+            #endif
+            zip.close();
+            return false;
+        }
 
-           if (name.endsWith(QDir::separator()))
-               name.remove(name.count()-1, 1);
+        QString entryName = QDir::fromNativeSeparators(file.getActualFileName());
+        if (!isSafeArchiveEntryName(entryName)) {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Unsafe ZIP entry -> " << entryName;
+            #endif
+            file.close();
+            zip.close();
+            return false;
+        }
 
-           if (name.endsWith(".tpp"))
-               m_importedProjectPath = QFileInfo(name).path();
-        
-           if (file.getZipError() != UNZ_OK) {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Error while open package - Description: " << file.getZipError();
-               #endif
-               return false;
-           }
-        
-           if (createPath(name)) {
+        QString name = rootDir.filePath(entryName);
+        name = QDir::cleanPath(name);
 
-               out.setFileName(name);
-        
-               if (! out.open(QIODevice::WriteOnly)) {
-                   #ifdef TUP_DEBUG
-                          qDebug() << "[PackageHandler::importPackage()] - Error while open file -> " << out.fileName(); 
-                          qDebug() << "[PackageHandler::importPackage()] - Error Description: " << out.errorString();
-                          qDebug() << "[PackageHandler::importPackage()] - Error type: " << out.error(); 
-                   #endif
-                   return false;
-               }
-        
-               while (file.getChar(&c)) 
-                      out.putChar(c);
+        if (name.endsWith('/'))
+            name.chop(1);
 
-               out.close();
-           } else {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Error creating path -> " << name; 
-               #endif
-               return false;
-           }
+        if (name.endsWith(".tpp"))
+            m_importedProjectPath = QFileInfo(name).path();
 
-           if (file.getZipError()!=UNZ_OK) {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description: " << file.getZipError();
-               #endif
-               return false;
-           }
+        if (file.getZipError() != UNZ_OK) {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Error while open package - Description: " << file.getZipError();
+            #endif
+            file.close();
+            zip.close();
+            return false;
+        }
 
-           if (!file.atEnd()) {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Not EOF Error";
-               #endif
-               return false;
-           }
+        if (createPath(name)) {
+            out.setFileName(name);
 
-           file.close();
+            if (!out.open(QIODevice::WriteOnly)) {
+                #ifdef TUP_DEBUG
+                       qDebug() << "[PackageHandler::importPackage()] - Error while open file -> " << out.fileName();
+                       qDebug() << "[PackageHandler::importPackage()] - Error Description: " << out.errorString();
+                       qDebug() << "[PackageHandler::importPackage()] - Error type: " << out.error();
+                #endif
+                file.close();
+                zip.close();
+                return false;
+            }
 
-           if (file.getZipError()!=UNZ_OK) {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description: " << file.getZipError();
-               #endif
-               return false;
-           }
-            
-           next = zip.goToNextFile();
+            while (!file.atEnd()) {
+                const QByteArray chunk = file.read(64 * 1024);
+                if (chunk.isEmpty() && file.getZipError() != UNZ_OK)
+                    break;
+                out.write(chunk);
+            }
+
+            out.close();
+        } else {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: Error creating path -> " << name;
+            #endif
+            file.close();
+            zip.close();
+            return false;
+        }
+
+        if (file.getZipError() != UNZ_OK) {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description: " << file.getZipError();
+            #endif
+            file.close();
+            zip.close();
+            return false;
+        }
+
+        file.close();
+
+        if (file.getZipError() != UNZ_OK) {
+            #ifdef TUP_DEBUG
+                   qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description: " << file.getZipError();
+            #endif
+            zip.close();
+            return false;
+        }
+
+        next = zip.goToNextFile();
     }
-    
+
     zip.close();
 
     if (zip.getZipError() != UNZ_OK) {
@@ -265,7 +323,7 @@ bool PackageHandler::importPackage(const QString &packagePath, const QString &ui
         #endif
         return false;
     }
-    
+
     return true;
 }
 
@@ -273,14 +331,30 @@ bool PackageHandler::createPath(const QString &filePath)
 {
     QFileInfo info(filePath);
     QDir path = info.dir();
-    QString target = path.path();
-    
-    if (!path.exists()) 
+    const QString target = path.path();
+
+    if (!path.exists())
         return path.mkpath(target);
-    else 
-        return true;
-    
-    return false;
+
+    return true;
+}
+
+bool PackageHandler::isSafeArchiveEntryName(const QString &entryName) const
+{
+    if (entryName.isEmpty())
+        return false;
+
+    if (entryName.startsWith('/') || entryName.startsWith('\\'))
+        return false;
+
+    if (entryName.contains(":"))
+        return false;
+
+    const QString cleaned = QDir::cleanPath(entryName);
+    if (cleaned == ".." || cleaned.startsWith("../") || cleaned.contains("/../"))
+        return false;
+
+    return true;
 }
 
 QString PackageHandler::importedProjectPath() const
