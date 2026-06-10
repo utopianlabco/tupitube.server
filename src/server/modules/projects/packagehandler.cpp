@@ -157,7 +157,7 @@ bool PackageHandler::importPackage(const QString &packagePath, const QString &ui
     
     if (!zip.open(QuaZip::mdUnzip)) {
         #ifdef TUP_DEBUG
-               qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description: " << zip.getZipError();
+               qDebug() << "[PackageHandler::importPackage()] - Fatal Error: While opening package - Description ->" << zip.getZipError();
         #endif
         return false;
     }

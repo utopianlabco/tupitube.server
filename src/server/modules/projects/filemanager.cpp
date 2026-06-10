@@ -229,7 +229,8 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
     QString absolutePath = repoDir + "/" + uid + "/projects/" + filename + "/" + filename + ".tup";
 
     #ifdef TUP_DEBUG
-        qWarning() << "[FileManager::load()] - Loading project -> " << absolutePath;
+        qWarning() << "[FileManager::load()] - filename ->" + filename;
+        qWarning() << "[FileManager::load()] - Loading project ->" << absolutePath;
     #endif
 
     PackageHandler packageHandler;
@@ -355,9 +356,9 @@ bool FileManager::createEmptyProjectFile(const QString &projectName, const QStri
 {
     #ifdef TUP_DEBUG
         qDebug() << "[FileManager::createEmptyProjectFile()]";
-        qWarning() << "[FileManager::createEmptyProjectFile()] - Creating project:" << projectName;
-        qWarning() << "[FileManager::createEmptyProjectFile()] - Owner ID:" << ownerId;
-        qWarning() << "[FileManager::createEmptyProjectFile()] - Filename:" << filename;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Creating project ->" << projectName;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Owner ID ->" << ownerId;
+        qWarning() << "[FileManager::createEmptyProjectFile()] - Filename ->" << filename;
     #endif
 
     // Create the project structure
