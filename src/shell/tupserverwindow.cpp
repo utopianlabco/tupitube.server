@@ -2122,7 +2122,7 @@ void TupServerWindow::playProject()
         if (!result.success) {
             appendLog(tr("Render failed for '%1': %2").arg(title, result.errorMessage), "ERROR");
             QMessageBox::critical(this, tr("Render Failed"),
-                tr("Failed to render \"%1\":\n\n%2").arg(title, result.errorMessage));
+                                  tr("Failed to render \"%1\":\n\n%2").arg(title, result.errorMessage));
             return;
         }
 
@@ -2157,14 +2157,14 @@ void TupServerWindow::playProject()
             outputPath = imagePath;
         } else {
             QMessageBox::warning(this, tr("File Not Found"),
-                tr("Rendered file not found. Expected one of:\n%1\n%2").arg(mp4Path, imagePath));
+                                 tr("Rendered file not found. Expected one of:\n%1\n%2").arg(mp4Path, imagePath));
             return;
         }
     }
 
     if (!QFile::exists(outputPath)) {
         QMessageBox::warning(this, tr("File Not Found"),
-            tr("Rendered file not found:\n%1").arg(outputPath));
+                             tr("Rendered file not found:\n%1").arg(outputPath));
         return;
     }
 

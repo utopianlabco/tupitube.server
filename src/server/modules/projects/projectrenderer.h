@@ -60,6 +60,8 @@ public:
     explicit ProjectRenderer(DatabaseHandler *dbHandler, QObject *parent = nullptr);
 
     bool isReady() const;
+    bool isVideoReady() const;
+    bool isImageReady() const;
 
     // Renders the given project_id to the configured render output directory.
     // Animation projects are exported as MP4 files. Illustration projects
@@ -70,6 +72,11 @@ public:
 
 private:
     void loadVideoPlugin();
+    void loadImagePlugin();
+    bool loadExportPlugin(const QString &expectedPlugin,
+                          const QString &pluginLabel,
+                          TupExportInterface **targetExporter);
+
     double calculateDuration(TupProject *project, QList<TupScene *> &outSceneList);
     QSize normalizeVideoDimension(const QSize &size) const;
     bool isSingleFrameProject(const QList<TupScene *> &sceneList) const;
@@ -82,7 +89,8 @@ private:
     bool resizeVideo(const QString &code, const QString &input, const QSize &size);
 
     DatabaseHandler *m_dbHandler;
-    TupExportInterface *m_exporter;
+    TupExportInterface *m_videoExporter;
+    TupExportInterface *m_imageExporter;
 };
 
 #endif // PROJECTRENDERER_H
