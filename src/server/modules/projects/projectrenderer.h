@@ -28,6 +28,7 @@
 #include <QList>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 
 #include "tupexportinterface.h"
 #include "databasehandler.h"
@@ -41,23 +42,43 @@ class ProjectRenderer : public QObject
 
 public:
     struct RenderResult {
-        bool success;
+        enum OutputType {
+            NoOutput,
+            VideoOutput,
+            ImageOutput
+        };
+
+        bool success = false;
+        OutputType outputType = NoOutput;
+        QString outputPath;
         QString mp4Path;
+        QString imagePath;
         QString errorMessage;
+        QStringList warnings;
     };
 
     explicit ProjectRenderer(DatabaseHandler *dbHandler, QObject *parent = nullptr);
 
-    // Renders all scenes of the given project_id to a MP4 file in the
-    // configured render output directory. Updates tupitube_project.last_rendered_at
-    // on success. Thread-safe to call but blocks until rendering is complete.
+    bool isReady() const;
+
+    // Renders the given project_id to the configured render output directory.
+    // Animation projects are exported as MP4 files. Illustration projects
+    // consisting of exactly one scene with one frame are exported as PNG files.
+    // Updates tupitube_project.last_rendered_at on success.
+    // Thread-safe to call but blocks until rendering is complete.
     RenderResult renderProject(int projectId);
 
 private:
     void loadVideoPlugin();
-    double calculateDuration(TupProject *project,
-                             QList<TupScene *> &outSceneList,
-                             int &outThumbScene, int &outThumbFrame);
+    double calculateDuration(TupProject *project, QList<TupScene *> &outSceneList);
+    QSize normalizeVideoDimension(const QSize &size) const;
+    bool isSingleFrameProject(const QList<TupScene *> &sceneList) const;
+    bool renderImage(TupProject *project,
+                     TupScene *scene,
+                     const QString &imagePath,
+                     int frameIndex,
+                     const QSize &dimension,
+                     QString &errorMessage);
     bool resizeVideo(const QString &code, const QString &input, const QSize &size);
 
     DatabaseHandler *m_dbHandler;

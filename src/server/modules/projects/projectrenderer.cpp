@@ -36,54 +36,77 @@
 #include <QPluginLoader>
 #include <QDebug>
 
+#include <cmath>
+
 ProjectRenderer::ProjectRenderer(DatabaseHandler *dbHandler, QObject *parent)
     : QObject(parent), m_dbHandler(dbHandler), m_exporter(nullptr)
 {
     loadVideoPlugin();
 }
 
+bool ProjectRenderer::isReady() const
+{
+    return m_exporter != nullptr;
+}
+
 void ProjectRenderer::loadVideoPlugin()
 {
+#ifdef Q_OS_WIN
+    const QString expectedPlugin = "tupiffmpegplugin.dll";
+#else
+    const QString expectedPlugin = "libtupiffmpegplugin.so";
+#endif
+
     #ifdef TUP_DEBUG
         qDebug() << "[ProjectRenderer::loadVideoPlugin()] - Loading plugin from:" << PLUGINS_DIR;
     #endif
 
     QDir pluginDirectory(PLUGINS_DIR);
-    foreach (const QString &fileName, pluginDirectory.entryList(QDir::Files)) {
-        #ifdef Q_OS_WIN
-            if (fileName.compare("tupiffmpegplugin.dll") != 0)
-        #else
-            if (fileName.compare("libtupiffmpegplugin.so") != 0)
-        #endif
-            continue;
-
-        QPluginLoader loader(pluginDirectory.absoluteFilePath(fileName));
-        TupExportPluginObject *plugin = qobject_cast<TupExportPluginObject *>(loader.instance());
-        if (plugin) {
-            m_exporter = qobject_cast<TupExportInterface *>(plugin);
-            if (m_exporter) {
-                #ifdef TUP_DEBUG
-                    qDebug() << "[ProjectRenderer::loadVideoPlugin()] - Plugin loaded:" << fileName;
-                #endif
-                return;
-            }
-        }
-        break;
+    if (!pluginDirectory.exists()) {
+        qCritical() << "[ProjectRenderer::loadVideoPlugin()] - Plugin directory does not exist:"
+                    << PLUGINS_DIR;
+        return;
     }
 
-    qWarning() << "[ProjectRenderer::loadVideoPlugin()] - Fatal Error: ffmpeg plugin not found in:" << PLUGINS_DIR;
+    const QString pluginPath = pluginDirectory.absoluteFilePath(expectedPlugin);
+    if (!QFile::exists(pluginPath)) {
+        qCritical() << "[ProjectRenderer::loadVideoPlugin()] - Video export plugin is missing:"
+                    << expectedPlugin << "in" << PLUGINS_DIR;
+        return;
+    }
+
+    QPluginLoader loader(pluginPath);
+    QObject *instance = loader.instance();
+    if (!instance) {
+        qCritical() << "[ProjectRenderer::loadVideoPlugin()] - Could not load plugin:"
+                    << pluginPath << "error:" << loader.errorString();
+        return;
+    }
+
+    TupExportPluginObject *plugin = qobject_cast<TupExportPluginObject *>(instance);
+    if (!plugin) {
+        qCritical() << "[ProjectRenderer::loadVideoPlugin()] - Plugin has invalid type:"
+                    << pluginPath;
+        return;
+    }
+
+    m_exporter = qobject_cast<TupExportInterface *>(plugin);
+    if (!m_exporter) {
+        qCritical() << "[ProjectRenderer::loadVideoPlugin()] - Plugin does not implement TupExportInterface:"
+                    << pluginPath;
+        return;
+    }
+
+    #ifdef TUP_DEBUG
+        qDebug() << "[ProjectRenderer::loadVideoPlugin()] - Plugin loaded:" << pluginPath;
+    #endif
 }
 
-double ProjectRenderer::calculateDuration(TupProject *project,
-                                          QList<TupScene *> &outSceneList,
-                                          int &outThumbScene, int &outThumbFrame)
+double ProjectRenderer::calculateDuration(TupProject *project, QList<TupScene *> &outSceneList)
 {
     outSceneList.clear();
-    outThumbScene = 0;
-    outThumbFrame = 0;
 
     int total = project->scenesCount();
-    int middle = total / 2;
     double timer = 0;
 
     for (int i = 0; i < total; i++) {
@@ -91,20 +114,81 @@ double ProjectRenderer::calculateDuration(TupProject *project,
         if (!scene)
             continue;
 
+        // Duration is calculated as frames / FPS for each scene.
+        // Both values are required: frames gives the amount of animation data,
+        // FPS tells how many frames are displayed per second.
         int fps = scene->getFPS();
         int frames = scene->framesCount();
-        if (fps > 0)
+        if (fps > 0) {
             timer += static_cast<double>(frames) / static_cast<double>(fps);
+        } else if (frames > 0) {
+            qWarning() << "[ProjectRenderer::calculateDuration()] - Invalid FPS in scene:"
+                       << i << "fps:" << fps;
+        }
 
         outSceneList.append(scene);
-
-        if (i == middle) {
-            outThumbScene = i;
-            outThumbFrame = frames / 2;
-        }
     }
 
     return timer;
+}
+
+QSize ProjectRenderer::normalizeVideoDimension(const QSize &size) const
+{
+    int w = size.width();
+    int h = size.height();
+
+    // MP4/H.264 export requires even dimensions in our pipeline.
+    // Odd dimensions can cause chroma alignment issues and visible
+    // red/blue color artifacts.
+    if (w % 2)
+        ++w;
+
+    if (h % 2)
+        ++h;
+
+    return QSize(w, h);
+}
+
+bool ProjectRenderer::isSingleFrameProject(const QList<TupScene *> &sceneList) const
+{
+    return sceneList.count() == 1
+           && sceneList.first()
+           && sceneList.first()->framesCount() == 1;
+}
+
+bool ProjectRenderer::renderImage(TupProject *project,
+                                  TupScene *scene,
+                                  const QString &imagePath,
+                                  int frameIndex,
+                                  const QSize &dimension,
+                                  QString &errorMessage)
+{
+    if (!project || !scene) {
+        errorMessage = tr("Invalid project or scene for image export.");
+        return false;
+    }
+
+    if (dimension.isEmpty()) {
+        errorMessage = tr("Invalid image dimensions.");
+        return false;
+    }
+
+    GenericExportPlugin imageExporter;
+    bool ok = imageExporter.exportFrame(frameIndex,
+                                        project->getCurrentBgColor(),
+                                        imagePath,
+                                        scene,
+                                        dimension,
+                                        project,
+                                        true);
+    if (!ok) {
+        errorMessage = tr("Generic image exporter failed.");
+        qWarning() << "[ProjectRenderer::renderImage()] -" << errorMessage
+                   << "Path:" << imagePath;
+        return false;
+    }
+
+    return true;
 }
 
 bool ProjectRenderer::resizeVideo(const QString &code, const QString &input, const QSize &size)
@@ -161,15 +245,6 @@ bool ProjectRenderer::resizeVideo(const QString &code, const QString &input, con
 ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
 {
     RenderResult result;
-    result.success = false;
-
-    // --- Guard: plugin must be loaded ---
-    if (!m_exporter) {
-        result.errorMessage = tr("Video export plugin is not loaded. "
-                                 "Check the plugins directory.");
-        qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
-        return result;
-    }
 
     // --- 1. Fetch project info from DB ---
     DatabaseHandler::RenderProjectInfo info = m_dbHandler->getProjectRenderInfo(projectId);
@@ -187,9 +262,8 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
                  << "owner:" << studentIdStr;
     #endif
 
-    // --- 2. Locate the .tup file ---
-    // Path variant A (student-saved): <students>/<uid>/projects/<filename>/<filename>.tup
-    // Path variant B (teacher-created): <students>/<uid>/projects/<filename>.tup
+    // --- 2. Locate the canonical .tup file ---
+    // <ProjectsPath>/<studentId>/projects/<filename>/<filename>.tup
     TCONFIG->beginGroup("Projects");
     QString studentsDir = TCONFIG->value("ProjectsPath").toString();
     TCONFIG->endGroup();
@@ -197,19 +271,12 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     if (studentsDir.isEmpty())
         studentsDir = kAppProp->repositoryDir();
 
-    QString tupPathA = studentsDir + "/" + studentIdStr + "/projects/"
-                       + filename + "/" + filename + ".tup";
-    QString tupPathB = studentsDir + "/" + studentIdStr + "/projects/"
-                       + filename + ".tup";
+    QString projectDirPath = QDir(studentsDir).filePath(studentIdStr + "/projects/" + filename);
+    QString tupPath = QDir(projectDirPath).filePath(filename + ".tup");
 
-    QString tupPath;
-    if (QFile::exists(tupPathA))
-        tupPath = tupPathA;
-    else if (QFile::exists(tupPathB))
-        tupPath = tupPathB;
-    else {
-        result.errorMessage = tr("Project file not found for '%1' (tried '%2' and '%3').")
-                                  .arg(filename).arg(tupPathA).arg(tupPathB);
+    if (!QFile::exists(tupPath)) {
+        result.errorMessage = tr("Project file not found for '%1'. Expected path: %2")
+                                  .arg(filename, tupPath);
         qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
         return result;
     }
@@ -223,9 +290,8 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     project->setFilename(filename);
     project->setOwner(info.studentId);
 
-    FileManager *manager = new FileManager();
-    bool loaded = manager->load(filename, project, studentIdStr);
-    delete manager;
+    FileManager manager;
+    bool loaded = manager.load(filename, project, studentIdStr);
 
     if (!loaded || project->scenesCount() == 0) {
         result.errorMessage = tr("Failed to load project '%1' or project has no scenes.").arg(filename);
@@ -236,31 +302,13 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
 
     // --- 4. Prepare scene list and duration ---
     QList<TupScene *> sceneList;
-    int thumbScene = 0;
-    int thumbFrame = 0;
-    double timer = calculateDuration(project, sceneList, thumbScene, thumbFrame);
+    double timer = calculateDuration(project, sceneList);
 
     if (sceneList.isEmpty()) {
         result.errorMessage = tr("Project '%1' has no renderable scenes.").arg(filename);
         qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
         delete project;
         return result;
-    }
-
-    if (timer <= 0) {
-        result.errorMessage = tr("Project '%1' has a duration of zero. "
-                                 "Make sure your scenes have frames and a valid FPS value.").arg(filename);
-        qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
-        delete project;
-        return result;
-    }
-
-    // Extend very short animations to at least 3 seconds
-    if (timer > 0 && timer < 3.0) {
-        int times = static_cast<int>(3.0 / timer) + 1;
-        QList<TupScene *> base = sceneList;
-        for (int i = 0; i < times; i++)
-            sceneList.append(base);
     }
 
     // --- 5. Prepare output directory ---
@@ -271,7 +319,7 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     if (renderPath.isEmpty())
         renderPath = kAppProp->repositoryDir() + "/render";
 
-    QString outDir = renderPath + "/" + studentIdStr;
+    QString outDir = QDir(renderPath).filePath(studentIdStr);
     QDir dir;
     if (!dir.exists(outDir)) {
         if (!dir.mkpath(outDir)) {
@@ -282,27 +330,79 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
         }
     }
 
-    QString mp4Path = outDir + "/" + filename + ".mp4";
+    // --- 6. Prepare normalized output dimensions ---
+    QSize dimension = normalizeVideoDimension(project->getDimension());
 
-    // --- 6. Prepare dimension (ensure even pixel counts for H.264) ---
-    QSize dimension = project->getDimension();
-    int w = dimension.width();
-    int h = dimension.height();
-    if (w % 2) w++;
-    if (h % 2) h++;
-    dimension = QSize(w, h);
+    // --- 7. Render illustration projects as PNG images ---
+    if (isSingleFrameProject(sceneList)) {
+        QString imagePath = QDir(outDir).filePath(filename + ".png");
+        QString imageError;
+
+        if (!renderImage(project, sceneList.first(), imagePath, 0, dimension, imageError)) {
+            result.errorMessage = tr("Image export failed for project '%1'. %2")
+                                      .arg(filename, imageError);
+            qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
+            delete project;
+            return result;
+        }
+
+        m_dbHandler->updateProjectLastRendered(projectId);
+        delete project;
+
+        result.success = true;
+        result.outputType = RenderResult::ImageOutput;
+        result.outputPath = imagePath;
+        result.imagePath = imagePath;
+
+        #ifdef TUP_DEBUG
+            qDebug() << "[ProjectRenderer::renderProject()] - Image render complete:" << imagePath;
+        #endif
+
+        return result;
+    }
+
+    // --- 8. Validate animation duration ---
+    if (timer <= 0) {
+        result.errorMessage = tr("Project '%1' has a duration of zero. "
+                                 "Make sure your scenes have frames and a valid FPS value.").arg(filename);
+        qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
+        delete project;
+        return result;
+    }
+
+    // Very short animations are repeated so the generated video is easier
+    // to perceive when played. This only affects the temporary render list;
+    // the original project is not modified.
+    if (timer > 0 && timer < 3.0) {
+        int repetitions = static_cast<int>(std::ceil(3.0 / timer));
+        QList<TupScene *> base = sceneList;
+        for (int i = 1; i < repetitions; ++i)
+            sceneList.append(base);
+    }
+
+    // --- 9. Delegate MP4 export to the ffmpeg plugin ---
+    if (!m_exporter) {
+        result.errorMessage = tr("Video export plugin is missing or could not be loaded. "
+                                 "The installation may be incomplete or corrupted.");
+        qCritical() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
+        delete project;
+        return result;
+    }
+
+    QString mp4Path = QDir(outDir).filePath(filename + ".mp4");
 
     int fps = sceneList.at(0)->getFPS();
     if (fps <= 0)
         fps = 24;
 
-    // --- 7. Export to MP4 ---
     #ifdef TUP_DEBUG
         qDebug() << "[ProjectRenderer::renderProject()] - Exporting to MP4:" << mp4Path;
         qDebug() << "[ProjectRenderer::renderProject()] - Scenes:" << sceneList.count()
                  << "| FPS:" << fps << "| Size:" << dimension;
     #endif
 
+    // The actual MP4 encoding is performed by the loaded ffmpeg export plugin.
+    // ProjectRenderer prepares the project data and delegates the export.
     bool isOk = m_exporter->exportToFormat(project->getCurrentBgColor().rgba(), mp4Path, sceneList,
                                             TupExportInterface::MP4, dimension, dimension,
                                             fps, project, true);
@@ -313,23 +413,13 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
         return result;
     }
 
-    // --- 8. Optional resize (normalize video dimensions) ---
-    resizeVideo(filename, mp4Path, dimension);
+    // resizeVideo() is intentionally not called here.
+    // The exporter already receives the normalized final dimension.
+    // The legacy resize path is kept available for future requirements,
+    // but running it here would unnecessarily reprocess a valid export.
 
-    // --- 9. Create thumbnail ---
-    QString thumbPath = outDir + "/" + filename + ".png";
-    GenericExportPlugin imageExporter;
-    bool thumbOk = imageExporter.exportFrame(thumbFrame,
-                                              project->getCurrentBgColor(),
-                                              thumbPath,
-                                              project->sceneAt(thumbScene),
-                                              dimension,
-                                              project, true);
-    if (!thumbOk) {
-        // Non-fatal: thumbnail failure does not abort the render
-        qWarning() << "[ProjectRenderer::renderProject()] - Warning: thumbnail creation failed for"
-                 << filename;
-    }
+    // PNG thumbnail generation was intentionally removed from the MP4 path.
+    // PNG output is now reserved for single-frame illustration projects.
 
     // --- 10. Update DB ---
     m_dbHandler->updateProjectLastRendered(projectId);
@@ -337,10 +427,12 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     delete project;
 
     result.success = true;
+    result.outputType = RenderResult::VideoOutput;
+    result.outputPath = mp4Path;
     result.mp4Path = mp4Path;
 
     #ifdef TUP_DEBUG
-        qDebug() << "[ProjectRenderer::renderProject()] - Render complete:" << mp4Path;
+        qDebug() << "[ProjectRenderer::renderProject()] - Video render complete:" << mp4Path;
     #endif
 
     return result;
