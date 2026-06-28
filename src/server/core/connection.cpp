@@ -53,6 +53,7 @@ Connection::Connection(qintptr socketDescriptor, TcpServer *server) : QThread(se
         qDebug() << "[Connection::Connection()]";
     #endif
 
+    m_student = nullptr;
     m_client = new Client(this);
 
     if (!m_client->setSocketDescriptor(socketDescriptor)) {
@@ -76,6 +77,10 @@ Connection::~Connection()
 
 void Connection::run()
 {
+    #ifdef TUP_DEBUG
+        qDebug() << "[Connection::run()]";
+    #endif
+
     while (m_client->state() != QAbstractSocket::UnconnectedState) {
        if (m_readed.isEmpty())
            continue;
@@ -254,7 +259,6 @@ void Connection::generateSign()
         QString input = m_student->login() + m_student->password() + TAlgorithm::randomString(TAlgorithm::random() % 10);
         QByteArray hash = QCryptographicHash::hash(input.toUtf8(), QCryptographicHash::Md5);     
         m_sign = hash.toHex();
-        // m_sign = TMD5Hash::hash(m_student->login() + m_student->password() + TAlgorithm::randomString(TAlgorithm::random() % 10));
     }
 }
 

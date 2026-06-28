@@ -254,26 +254,23 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
     #ifdef TUP_DEBUG
         QDate date = QDate::currentDate();
         QTime time = QTime::currentTime();
-	QString today = date.toString("yyyy-MM-dd");
-	QString now = time.toString("hh:mm:ss");
-	QString record = "[" + today + " " + now + "]";
-	qDebug() << "";
-	qDebug() << ("" + record);
+        QString today = date.toString("yyyy-MM-dd");
+        QString now = time.toString("hh:mm:ss");
+        QString record = "[" + today + " " + now + "]";
+        qDebug() << "";
+        qDebug() << ("" + record);
         qWarning() << "[TcpServer::incomingConnection()] - Handling connection #" << m_connections.count();
         qDebug() << "[TcpServer::incomingConnection()] - New connection detected!";
     #endif
 
     Connection *newConnection = new Connection(socketDescriptor, this);
     if (newConnection) {
-        QString ip = newConnection->client()->peerAddress().toString();
         handle(newConnection);
         m_connections << newConnection;
-        // newConnection->startTimer(60000); // 1 minute
         newConnection->startTimer(600000); // 10 minutes
         newConnection->start();
 
         emit connectionCountChanged(m_connections.count());
-        // emit logMessage(QObject::tr("New connection from %1").arg(ip), "INFO");
     } else {
         #ifdef TUP_DEBUG
                qDebug() << "[TcpServer::incomingConnection()] - Fatal Error: while setting connection";
@@ -288,12 +285,23 @@ void TcpServer::handle(Connection *connection)
     #endif
 
     connect(connection, SIGNAL(finished()), connection, SLOT(deleteLater()));
+
+    qDebug() << "[TcpServer::handle()] - FLAG 0";
+
     connect(connection, SIGNAL(requestSendToAll(const QString&)), 
             this, SLOT(sendToAll(const QString&)));
+
+    qDebug() << "[TcpServer::handle()] - FLAG 1";
+
     connect(connection, SIGNAL(packageReaded(Connection*, const QString&, const QString&)),
             this, SLOT(handlePackage(Connection*, const QString&, const QString&)));
+
+    qDebug() << "[TcpServer::handle()] - FLAG 2";
+
     connect(connection, SIGNAL(connectionClosed(Connection*)),
             this, SLOT(removeConnection(Connection*)));
+
+    qDebug() << "[TcpServer::handle()] - FLAG 3";
 }
 
 void TcpServer::sendToAll(const QString &msg)
