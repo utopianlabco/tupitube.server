@@ -31,6 +31,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
+
 #include "serverclient.h"
 #include "connection.h"
 
@@ -50,3 +51,32 @@ void Client::readed(const QString &package)
     m_connection->appendTextReaded(package);
 }
 
+void Client::send(const QString &text)
+{
+    SocketBase::send(text);
+}
+
+void Client::send(const QDomDocument &doc)
+{
+    SocketBase::send(doc);
+}
+
+void Client::sendFile(const QString &path)
+{
+    SocketBase::sendFile(path);
+}
+
+void Client::flush()
+{
+    SocketBase::flush();
+}
+
+void Client::disconnectFromHost()
+{
+    SocketBase::disconnectFromHost();
+}
+
+void Client::close()
+{
+    SocketBase::close();
+}

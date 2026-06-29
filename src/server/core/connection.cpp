@@ -31,8 +31,8 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
-#include "connection.h"
 
+#include "connection.h"
 #include "talgorithm.h"
 #include "server.h"
 #include "logger.h"
@@ -40,50 +40,66 @@
 #include "tupcompress.h"
 #include "tupprojectrequest.h"
 #include "tupprojectresponse.h"
-#include "tuprequestparser.h"
 #include "../modules/students/student.h"
-
 #include <QtNetwork>
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QCoreApplication> // Required for processEvents()
 
-Connection::Connection(qintptr socketDescriptor, TcpServer *server) : QThread(server), m_server(server), m_student(nullptr)
+Connection::Connection(qintptr socketDescriptor, TcpServer *server)
+    : QThread(server),
+      m_socketDescriptor(socketDescriptor), // Matches header declaration order
+      m_client(nullptr),
+      m_server(server),
+      m_student(nullptr)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[Connection::Connection()]";
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[Connection::Connection()]";
+#endif
+    m_ip = "unknown";
+    m_auth = false;
 
-    m_student = nullptr;
-    m_client = new Client(this);
-
-    if (!m_client->setSocketDescriptor(socketDescriptor)) {
-        #ifdef TUP_DEBUG
-           qWarning() << "[Connection::Connection()] - Error: " << m_client->error();
-        #endif
-        return;
-    }
-
-    m_ip = m_client->peerAddress().toString();
-  
-    if (m_ip.isNull())
-        m_ip = "unknown";
+    // DO NOT create m_client here. It is now created inside run() to fix Windows thread affinity.
 }
 
 Connection::~Connection()
 {
-    delete m_client;
+    // m_client is safely deleted at the end of run()
     delete m_student;
 }
 
 void Connection::run()
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[Connection::run()]";
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[Connection::run()]";
+#endif
 
-    while (m_client->state() != QAbstractSocket::UnconnectedState) {
-       if (m_readed.isEmpty())
+    // 1. Create the socket INSIDE the worker thread.
+    // This ensures the OS socket handle belongs to this thread, fixing the Windows crash.
+    m_client = new Client(this);
+
+    if (!m_client->setSocketDescriptor(m_socketDescriptor)) {
+        #ifdef TUP_DEBUG
+           qWarning() << "[Connection::run()] - Error: " << m_client->error();
+        #endif
+        delete m_client;
+        m_client = nullptr;
+        return;
+    }
+
+    m_ip = m_client->peerAddress().toString();
+    if (m_ip.isNull())
+        m_ip = "unknown";
+
+    while (m_client && m_client->state() != QAbstractSocket::UnconnectedState) {
+
+       // CRITICAL: Process queued method calls (like sendStringToClient) from the main thread
+       QCoreApplication::processEvents();
+
+       if (m_readed.isEmpty()) {
+           QThread::msleep(10); // Prevent 100% CPU usage in busy-wait loop
            continue;
+       }
 
        if (!m_student)
            setAuthenticationFlag(false);
@@ -91,14 +107,10 @@ void Connection::run()
        if (!m_readed.isEmpty()) {
            QString package = QString::fromUtf8(m_readed.dequeue().toUtf8());
 
-           // SQA: Code to trace tricky packages
-           // qDebug("server") << "Connection::run() - package: ";
-           // qDebug("server") << package;
-
            if (!package.isNull()) {
                #ifdef TUP_DEBUG
-                      qDebug() << "*** [Connection::run()] - Package received: ";
-                      qWarning() << package;
+                      qDebug()  <<  "*** [Connection::run()] - Package received:  ";
+                      qWarning()  << package;
                #endif
 
                QDomDocument doc;
@@ -106,7 +118,7 @@ void Connection::run()
                if (doc.setContent(package.trimmed())) {
                    QString root = doc.documentElement().tagName();
 
-                   if ((root.compare("user_connect") == 0 && !isAuthenticated()) || 
+                    if ((root.compare("user_connect") == 0 && !isAuthenticated()) ||
                        (root.compare("user_connect") != 0 && isAuthenticated())) {
                         emit packageReaded(this, root, package);
                    } else {
@@ -128,10 +140,13 @@ void Connection::run()
                break;
            }
        }
-    }
+   }
 
-    // SQA: Code to trace tricky packages
-    // qDebug("server") << "Connection::run() - Connection State == QAbstractSocket::UnconnectedState";
+    // Cleanup socket before exiting thread
+    if (m_client) {
+        delete m_client;
+        m_client = nullptr;
+    }
 
     removeConnection();
 }
@@ -144,36 +159,36 @@ void Connection::removeConnection()
 void Connection::close()
 {
     if (m_student && isAuthenticated())
-        Logger::self()->info(QObject::tr("Student \"%1\" has logged off [%2]").arg(m_student->login(), m_ip)); 
+        Logger::self()->info(QObject::tr("Student \"%1\" has logged off [%2]").arg(m_student->login(), m_ip));
 
     setAuthenticationFlag(false);
-    
     m_readed.clear();
 
-    if (m_client->state() != QAbstractSocket::UnconnectedState) {
-        m_client->flush();
-        m_client->disconnectFromHost();
-        m_client->close();
+    // Safely invoke socket methods in the worker thread using QueuedConnection
+    if (m_client) {
+        QMetaObject::invokeMethod(m_client, "flush", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_client, "disconnectFromHost", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_client, "close", Qt::QueuedConnection);
     }
 }
 
 void Connection::appendTextReaded(const QString &package)
 {
-    // SQA: Code to trace tricky packages 
-    // qDebug("server") << "Connection::appendTextReaded() - Tracing data:";
-    // qDebug("server") << package;
-
     m_readed.enqueue(QString::fromUtf8(package.toUtf8()));
 }
 
 void Connection::sendStringToClient(const QString &text)
 {
-    m_client->send(text);
+    if (m_client) {
+        QMetaObject::invokeMethod(m_client, "send", Qt::QueuedConnection, Q_ARG(QString, text));
+    }
 }
 
 void Connection::sendFileToClient(const QString &path)
 {
-    m_client->sendFile(path);
+    if (m_client) {
+        QMetaObject::invokeMethod(m_client, "sendFile", Qt::QueuedConnection, Q_ARG(QString, path));
+    }
 }
 
 void Connection::setData(int key, const QVariant &value)
@@ -203,26 +218,28 @@ void Connection::sendToAll(const QString &text)
 
 void Connection::sendStringToClient(QDomDocument &doc, bool sign)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[Connection::sendStringToClient()]";
-    #endif
-
+#ifdef TUP_DEBUG
+    qDebug() << "[Connection::sendStringToClient()]";
+#endif
     if (sign)
         signPackage(doc);
 
-    #ifdef TUP_DEBUG   
-       qDebug() << "[Connection::sendStringToClient()] - Sending package: ";
-       qWarning() << doc.toString();
-    #endif
-    
-    m_client->send(doc);
+#ifdef TUP_DEBUG
+   qDebug() << "[Connection::sendStringToClient()] - Sending package: ";
+   qWarning() << doc.toString();
+#endif
+
+    if (m_client) {
+        // Convert to QString to avoid QMetaType registration issues with QDomDocument
+        QString xmlString = doc.toString(0);
+        QMetaObject::invokeMethod(m_client, "send", Qt::QueuedConnection, Q_ARG(QString, xmlString));
+    }
 }
 
 void Connection::sendToAll(QDomDocument &doc, bool sign)
 {
     if (sign)
         signPackage(doc);
-
     emit requestSendToAll(doc.toString(0));
 }
 
@@ -238,13 +255,11 @@ QString Connection::sign() const
 
 void Connection::setStudent(Student *student)
 {
-    #ifdef TUP_DEBUG
-       qDebug() << "[Connection::setStudent()]";
-    #endif
-
+#ifdef TUP_DEBUG
+    qDebug() << "[Connection::setStudent()]";
+#endif
     m_student = student;
     generateSign();
-    
     setAuthenticationFlag(true);
 }
 
@@ -257,7 +272,7 @@ void Connection::generateSign()
 {
     if (m_student) {
         QString input = m_student->login() + m_student->password() + TAlgorithm::randomString(TAlgorithm::random() % 10);
-        QByteArray hash = QCryptographicHash::hash(input.toUtf8(), QCryptographicHash::Md5);     
+        QByteArray hash = QCryptographicHash::hash(input.toUtf8(), QCryptographicHash::Md5);
         m_sign = hash.toHex();
     }
 }
@@ -283,13 +298,11 @@ QString Connection::ip() const
     return m_ip;
 }
 
-void Connection::timerEvent(QTimerEvent *event) 
+void Connection::timerEvent(QTimerEvent *event)
 {
     Q_UNUSED(event);
-
-    #ifdef TUP_DEBUG
-        qDebug() << "*** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
-    #endif
-
+#ifdef TUP_DEBUG
+    qDebug() << "*** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
+#endif
     emit connectionClosed(this);
 }

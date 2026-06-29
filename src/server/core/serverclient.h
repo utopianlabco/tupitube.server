@@ -31,6 +31,71 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
+
+#ifndef CLIENT_H
+#define CLIENT_H
+
+#include "socketbase.h"
+
+class Connection;
+
+class Client : public SocketBase
+{
+    Q_OBJECT
+public:
+    Client(Connection *connection);
+    virtual ~Client();
+
+    virtual void readed(const QString &readed);
+
+    Q_INVOKABLE void send(const QString &text);
+    Q_INVOKABLE void send(const QDomDocument &doc);
+    Q_INVOKABLE void sendFile(const QString &path);
+    Q_INVOKABLE void flush();
+    Q_INVOKABLE void disconnectFromHost();
+    Q_INVOKABLE void close();
+
+private:
+    Connection *m_connection;
+};
+
+#endif // CLIENT_H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #ifndef CLIENT_H
 #define CLIENT_H
 

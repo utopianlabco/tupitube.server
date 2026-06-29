@@ -37,7 +37,6 @@
 #include "serverclient.h"
 #include "notification.h"
 #include "../modules/students/student.h"
-
 #include <QThread>
 #include <QTimerEvent>
 #include <QQueue>
@@ -50,66 +49,64 @@ class TcpServer;
 class Connection : public QThread
 {
     Q_OBJECT
+public:
+    Connection(qintptr socketDescriptor, TcpServer *server);
+    ~Connection();
 
-    public:
-        Connection(qintptr socketDescriptor, TcpServer *server);
-        ~Connection();
-        
-        void run();
-        
-        void appendTextReaded(const QString &package);
-        
-        void sendStringToClient(const QString &text);
-        void sendStringToClient(QDomDocument &doc, bool sign = true);
-        void sendToAll(const QString &text);
-        void sendToAll(QDomDocument &doc, bool sign = true);
+    void run() override;
 
-        void sendFileToClient(const QString &path);
-        
-        void setData(int key, const QVariant &value);
-        QVariant data(int key) const;
-        
-        Client *client() const;
-        TcpServer *server() const;
-        
-        void setStudent(Student *student);
-        Student *student() const;
-        
-        void generateSign();
-        
-        void signPackage(QDomDocument &doc);
-        
-        QString sign() const;
-        
-        void setAuthenticationFlag(bool flag);
-        bool isAuthenticated() const;
-        QString ip() const;
+    void appendTextReaded(const QString &package);
 
-    protected:
-        void timerEvent(QTimerEvent *event);
-        
-    public slots:
-        void close();
-        void sendNotification(int code, const QString &text, Notification::Level level);
-        
-    private slots:
-        void removeConnection();
-        
-    signals:
-        void error(QTcpSocket::SocketError socketError);
-        void requestSendToAll(const QString &msg);
-        void connectionClosed(Connection *connection);
-        void packageReaded(Connection *connection, const QString& root,const QString & packages);
-        
-    private:
-        Client *m_client;
-        TcpServer *m_server;
-        QString m_ip;
-        bool m_auth;
-        QQueue<QString> m_readed;
-        QHash<int, QVariant> m_datas;
-        QString m_sign;
-        Student *m_student;
+    void sendStringToClient(const QString &text);
+    void sendStringToClient(QDomDocument &doc, bool sign = true);
+    void sendToAll(const QString &text);
+    void sendToAll(QDomDocument &doc, bool sign = true);
+
+    void sendFileToClient(const QString &path);
+
+    void setData(int key, const QVariant &value);
+    QVariant data(int key) const;
+
+    Client *client() const;
+    TcpServer *server() const;
+
+    void setStudent(Student *student);
+    Student *student() const;
+
+    void generateSign();
+    void signPackage(QDomDocument &doc);
+    QString sign() const;
+
+    void setAuthenticationFlag(bool flag);
+    bool isAuthenticated() const;
+    QString ip() const;
+
+protected:
+    void timerEvent(QTimerEvent *event) override;
+
+public slots:
+    void close();
+    void sendNotification(int code, const QString &text, Notification::Level level);
+
+private slots:
+    void removeConnection();
+
+signals:
+    void error(QTcpSocket::SocketError socketError);
+    void requestSendToAll(const QString &msg);
+    void connectionClosed(Connection *connection);
+    void packageReaded(Connection *connection, const QString &root, const QString &packages);
+
+private:
+    qintptr m_socketDescriptor; // Added to store descriptor and fix init order
+    Client *m_client;
+    TcpServer *m_server;
+    QString m_ip;
+    bool m_auth;
+    QQueue<QString> m_readed;
+    QHash<int, QVariant> m_datas;
+    QString m_sign;
+    Student *m_student;
 };
 
-#endif
+#endif // CONNECTION_H
