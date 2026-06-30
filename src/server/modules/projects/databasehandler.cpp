@@ -1668,3 +1668,16 @@ DatabaseHandler::GradeInfo DatabaseHandler::getGrade(int projectId, int studentI
     info.updatedAt = query.value(3).toString();
     return info;
 }
+
+int DatabaseHandler::getProjectIdFromFilename(const QString &filename)
+{
+    QSqlQuery query;
+    query.prepare("SELECT project_id FROM tupitube_project WHERE filename = :filename");
+    query.bindValue(":filename", filename);
+
+    if (query.exec() && query.next()) {
+        return query.value(0).toInt();
+    }
+
+    return -1; // Return -1 if not found
+}

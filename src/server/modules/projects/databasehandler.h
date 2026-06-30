@@ -75,6 +75,8 @@ public:
     bool removePeriod(int periodId);
     bool periodHasProjects(int periodId) const;
 
+    int getProjectIdFromFilename(const QString &filename);
+
     public:
         struct ProjectInfo
         {
@@ -109,7 +111,7 @@ public:
         
         bool addProject(const NetProject *project);
 
-	QString getStudentID(const QString &studentname) const;
+        QString getStudentID(const QString &studentname) const;
         bool addWork(const QString &projectID, const QString &type, const QString &owner, const QString &title, 
                      const QString &topics, const QString &desc, const QString &filename, bool portrait);
 

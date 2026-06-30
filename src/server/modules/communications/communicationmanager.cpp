@@ -33,6 +33,8 @@
  ***************************************************************************/
 #include "communicationmanager.h"
 #include "databasehandler.h"
+#include "chatparser.h" // <--- FIX 1: Include the parser that correctly reads the "text" attribute
+
 //base
 #include "packagebase.h"
 #include "settings.h"
@@ -43,9 +45,10 @@
 //server/students
 #include "../students/student.h"
 
+#include "global.h"
+
 #include <QDomDocument>
-#include <QDebug>
-    
+
 CommunicationManager::CommunicationManager() : Observer()
 {
     m_dbHandler = new DatabaseHandler();
@@ -64,50 +67,61 @@ void CommunicationManager::handlePackage(PackageBase *const pkg)
 
     Connection *cnn = pkg->source();
     Student *student = cnn->student();
-    
+
+    // Retrieve the project filename and convert it to the numeric DB ID
+    QString projectFilename = cnn->data(Info::ProjectID).toString();
+    int projectID = m_dbHandler->getProjectIdFromFilename(projectFilename);
+
     if (pkg->root() == "communication_chat") {
+
+        ChatParser parser(pkg->xml());
+        QString message = parser.parse() ? parser.message() : "";
+
+        // KEEP: This writes to the actual server log file (tupitube.server.log)
+        Logger::self()->info(QObject::tr("Chat from %1: %2").arg(student->login(), message));
 
         QDomDocument doc;
         doc.setContent(pkg->xml());
-        
         QDomElement element = doc.firstChild().firstChildElement("message");
-        QString message = element.text();
         element.setAttribute("from", student->login());
-        
-        // Save message to database for teacher review
-        m_dbHandler->saveChatMessage(-1, student->uid(), student->login(), message, "chat");
-        
+
+        m_dbHandler->saveChatMessage(projectID, student->uid(), student->login(), message, "chat");
+
         cnn->sendToAll(doc);
         pkg->accept();
 
     } else if (pkg->root() == "communication_notice") {
 
+        ChatParser parser(pkg->xml());
+        QString message = parser.parse() ? parser.message() : "";
+
+        Logger::self()->info(QObject::tr("Notice from %1: %2").arg(student->login(), message));
+
         QDomDocument doc;
         doc.setContent(pkg->xml());
-        
         QDomElement element = doc.firstChild().firstChildElement("message");
-        QString message = element.text();
         element.setAttribute("from", student->login());
-        
-        // Save notice to database
-        m_dbHandler->saveChatMessage(-1, student->uid(), student->login(), message, "notice");
-        
-        cnn->sendToAll(doc); //TODO: enviar a todos los clientes del proyecto
+
+        m_dbHandler->saveChatMessage(projectID, student->uid(), student->login(), message, "notice");
+
+        cnn->sendToAll(doc);
         pkg->accept();
 
     } else if (pkg->root() == "communication_wall") {
 
+        ChatParser parser(pkg->xml());
+        QString message = parser.parse() ? parser.message() : "";
+
+        Logger::self()->info(QObject::tr("Wall post from %1: %2").arg(student->login(), message));
+
         QDomDocument doc;
         doc.setContent(pkg->xml());
         QDomElement element = doc.firstChild().firstChildElement("message");
-        QString message = element.text();
         element.setAttribute("from", student->login());
-        
-        // Save wall message to database
-        m_dbHandler->saveChatMessage(-1, student->uid(), student->login(), message, "wall");
-        
+
+        m_dbHandler->saveChatMessage(projectID, student->uid(), student->login(), message, "wall");
+
         cnn->sendToAll(doc);
         pkg->accept();
-
     }
 }
