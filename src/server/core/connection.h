@@ -42,6 +42,7 @@
 #include <QQueue>
 #include <QHash>
 #include <QVariant>
+#include <QMutex>
 
 class TupProjectRequest;
 class TcpServer;
@@ -98,12 +99,21 @@ signals:
     void packageReaded(Connection *connection, const QString &root, const QString &packages);
 
 private:
-    qintptr m_socketDescriptor; // Added to store descriptor and fix init order
+    qintptr m_socketDescriptor;
     Client *m_client;
     TcpServer *m_server;
     QString m_ip;
     bool m_auth;
+
     QQueue<QString> m_readed;
+    QMutex m_readedMutex;
+
+    QQueue<QString> m_sendQueue;
+    QMutex m_sendMutex;
+
+    bool m_shouldClose;
+    QMutex m_closeMutex;
+
     QHash<int, QVariant> m_datas;
     QString m_sign;
     Student *m_student;

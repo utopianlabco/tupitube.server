@@ -36,6 +36,7 @@
 #define CLIENT_H
 
 #include "socketbase.h"
+#include <QDomDocument>
 
 class Connection;
 
@@ -60,61 +61,3 @@ private:
 };
 
 #endif // CLIENT_H
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#ifndef CLIENT_H
-#define CLIENT_H
-
-#include "socketbase.h"
-
-class Connection;
-
-class Client : public SocketBase
-{
-    Q_OBJECT
-
-    public:
-        Client(Connection *connection);
-        virtual ~Client();
-        
-        virtual void readed(const QString &readed);
-        
-    private:
-        Connection *m_connection;
-};
-
-#endif

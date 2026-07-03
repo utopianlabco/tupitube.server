@@ -50,19 +50,19 @@ class CommunicationManager;
 class TcpServer : public QTcpServer
 {
     Q_OBJECT
-    
+
     public:
         TcpServer(QObject *parent = nullptr);
         ~TcpServer();
 
         void sendToAll(const QDomDocument &pkg);
         bool openConnection(const QString &host, int port);
-        
+
         void sendToAdmins(const QString &str);
-        
+
         void addAdmin(Connection *connection);
         StudentManager *studentManager() const;
-        
+
         void addObserver(Observer *observer);
         bool removeObserver(Observer *observer);
 
@@ -74,12 +74,12 @@ class TcpServer : public QTcpServer
         void studentDisconnected(const QString &studentname);
         void logMessage(const QString &message, const QString &level);
         void projectRegistered(const QString &filename);
-        
+
     private slots:
         void sendToAll(const QString &msg);
         void handlePackage(Connection *client, const QString &root, const QString &packages);
         void removeConnection(Connection *connection);
-    
+
     private:
         void initDataBase();
         // void createDatabaseSchema();
@@ -88,10 +88,10 @@ class TcpServer : public QTcpServer
         // bool verifyPassword(const QString &login, const QString &password);
         // bool studentExists(const QString &login);
         // Student *studentData(const QString &login);
-        
+
     protected:
         void incomingConnection(qintptr socketDescriptor);
-        
+
     private:
         QList<Connection *> m_connections;
         QList<Connection *> m_managers;

@@ -44,27 +44,25 @@
 #include <QtNetwork>
 #include <QCryptographicHash>
 #include <QDebug>
-#include <QCoreApplication> // Required for processEvents()
+#include <QMutexLocker>
 
 Connection::Connection(qintptr socketDescriptor, TcpServer *server)
     : QThread(server),
-      m_socketDescriptor(socketDescriptor), // Matches header declaration order
+      m_socketDescriptor(socketDescriptor),
       m_client(nullptr),
       m_server(server),
+      m_ip("unknown"),
+      m_auth(false),
+      m_shouldClose(false),
       m_student(nullptr)
 {
 #ifdef TUP_DEBUG
     qDebug() << "[Connection::Connection()]";
 #endif
-    m_ip = "unknown";
-    m_auth = false;
-
-    // DO NOT create m_client here. It is now created inside run() to fix Windows thread affinity.
 }
 
 Connection::~Connection()
 {
-    // m_client is safely deleted at the end of run()
     delete m_student;
 }
 
@@ -74,10 +72,7 @@ void Connection::run()
     qDebug() << "[Connection::run()]";
 #endif
 
-    // 1. Create the socket INSIDE the worker thread.
-    // This ensures the OS socket handle belongs to this thread, fixing the Windows crash.
     m_client = new Client(this);
-
     if (!m_client->setSocketDescriptor(m_socketDescriptor)) {
         #ifdef TUP_DEBUG
            qWarning() << "[Connection::run()] - Error: " << m_client->error();
@@ -93,56 +88,71 @@ void Connection::run()
 
     while (m_client && m_client->state() != QAbstractSocket::UnconnectedState) {
 
-       // CRITICAL: Process queued method calls (like sendStringToClient) from the main thread
-       QCoreApplication::processEvents();
-
-       if (m_readed.isEmpty()) {
-           QThread::msleep(10); // Prevent 100% CPU usage in busy-wait loop
-           continue;
-       }
-
-       if (!m_student)
-           setAuthenticationFlag(false);
-
-       if (!m_readed.isEmpty()) {
-           QString package = QString::fromUtf8(m_readed.dequeue().toUtf8());
-
-           if (!package.isNull()) {
-               #ifdef TUP_DEBUG
-                      qDebug()  <<  "*** [Connection::run()] - Package received:  ";
-                      qWarning()  << package;
-               #endif
-
-               QDomDocument doc;
-
-               if (doc.setContent(package.trimmed())) {
-                   QString root = doc.documentElement().tagName();
-
-                    if ((root.compare("user_connect") == 0 && !isAuthenticated()) ||
-                       (root.compare("user_connect") != 0 && isAuthenticated())) {
-                        emit packageReaded(this, root, package);
-                   } else {
-                        #ifdef TUP_DEBUG
-                               qDebug() << "[Connection::run()] - Error: malicious package";
-                        #endif
-                        break;
-                   }
-               } else {
-                   #ifdef TUP_DEBUG
-                          qDebug() << "[Connection::run()] - Error: Incoming package is invalid - ip source -> " << m_ip;
-                   #endif
-                   break;
-               }
-           } else {
-               #ifdef TUP_DEBUG
-                      qDebug() << "[Connection::run()] - Error: Package is null!";
-               #endif
+       {
+           QMutexLocker locker(&m_closeMutex);
+           if (m_shouldClose) {
+               m_client->flush();
+               m_client->disconnectFromHost();
+               m_client->close();
                break;
            }
        }
-   }
 
-    // Cleanup socket before exiting thread
+       if (m_client->waitForReadyRead(100)) {
+           QByteArray data = m_client->readAll();
+           appendTextReaded(QString::fromUtf8(data));
+       }
+
+       {
+           QMutexLocker locker(&m_sendMutex);
+           while (!m_sendQueue.isEmpty()) {
+               QString text = m_sendQueue.dequeue();
+               if (text.startsWith("FILE:")) {
+                   m_client->sendFile(text.mid(5));
+               } else {
+                   m_client->send(text);
+               }
+           }
+       }
+
+       {
+           QMutexLocker locker(&m_readedMutex);
+           while (!m_readed.isEmpty()) {
+               QString package = m_readed.dequeue();
+
+               if (!m_student)
+                   setAuthenticationFlag(false);
+
+               if (!package.isNull()) {
+                   #ifdef TUP_DEBUG
+                          qDebug() << "*** [Connection::run()] - Package received: ";
+                          qWarning() << package;
+                   #endif
+
+                   QDomDocument doc;
+                   if (doc.setContent(package.trimmed())) {
+                       QString root = doc.documentElement().tagName();
+
+                        if ((root.compare("user_connect") == 0 && !isAuthenticated()) ||
+                           (root.compare("user_connect") != 0 && isAuthenticated())) {
+                            emit packageReaded(this, root, package);
+                       } else {
+                            #ifdef TUP_DEBUG
+                                   qDebug() << "[Connection::run()] - Error: malicious package";
+                            #endif
+                            break;
+                       }
+                   } else {
+                       #ifdef TUP_DEBUG
+                              qDebug() << "[Connection::run()] - Error: Incoming package is invalid - ip source -> " << m_ip;
+                       #endif
+                       break;
+                   }
+               }
+           }
+       }
+    }
+
     if (m_client) {
         delete m_client;
         m_client = nullptr;
@@ -162,33 +172,34 @@ void Connection::close()
         Logger::self()->info(QObject::tr("Student \"%1\" has logged off [%2]").arg(m_student->login(), m_ip));
 
     setAuthenticationFlag(false);
-    m_readed.clear();
 
-    // Safely invoke socket methods in the worker thread using QueuedConnection
-    if (m_client) {
-        QMetaObject::invokeMethod(m_client, "flush", Qt::QueuedConnection);
-        QMetaObject::invokeMethod(m_client, "disconnectFromHost", Qt::QueuedConnection);
-        QMetaObject::invokeMethod(m_client, "close", Qt::QueuedConnection);
+    {
+        QMutexLocker locker(&m_readedMutex);
+        m_readed.clear();
+    }
+
+    {
+        QMutexLocker locker(&m_closeMutex);
+        m_shouldClose = true;
     }
 }
 
 void Connection::appendTextReaded(const QString &package)
 {
-    m_readed.enqueue(QString::fromUtf8(package.toUtf8()));
+    QMutexLocker locker(&m_readedMutex);
+    m_readed.enqueue(package);
 }
 
 void Connection::sendStringToClient(const QString &text)
 {
-    if (m_client) {
-        QMetaObject::invokeMethod(m_client, "send", Qt::QueuedConnection, Q_ARG(QString, text));
-    }
+    QMutexLocker locker(&m_sendMutex);
+    m_sendQueue.enqueue(text);
 }
 
 void Connection::sendFileToClient(const QString &path)
 {
-    if (m_client) {
-        QMetaObject::invokeMethod(m_client, "sendFile", Qt::QueuedConnection, Q_ARG(QString, path));
-    }
+    QMutexLocker locker(&m_sendMutex);
+    m_sendQueue.enqueue("FILE:" + path);
 }
 
 void Connection::setData(int key, const QVariant &value)
@@ -229,11 +240,9 @@ void Connection::sendStringToClient(QDomDocument &doc, bool sign)
    qWarning() << doc.toString();
 #endif
 
-    if (m_client) {
-        // Convert to QString to avoid QMetaType registration issues with QDomDocument
-        QString xmlString = doc.toString(0);
-        QMetaObject::invokeMethod(m_client, "send", Qt::QueuedConnection, Q_ARG(QString, xmlString));
-    }
+    QString xmlString = doc.toString(0);
+    QMutexLocker locker(&m_sendMutex);
+    m_sendQueue.enqueue(xmlString);
 }
 
 void Connection::sendToAll(QDomDocument &doc, bool sign)
@@ -280,7 +289,7 @@ void Connection::generateSign()
 void Connection::sendNotification(int code, const QString &text, Notification::Level level)
 {
     Notification message(code, text, level);
-    sendStringToClient(message);
+    sendStringToClient(message.toString());
 }
 
 void Connection::setAuthenticationFlag(bool flag)
@@ -302,7 +311,7 @@ void Connection::timerEvent(QTimerEvent *event)
 {
     Q_UNUSED(event);
 #ifdef TUP_DEBUG
-    qDebug() << "*** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
+    qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
 #endif
     emit connectionClosed(this);
 }

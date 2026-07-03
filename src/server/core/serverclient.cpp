@@ -34,7 +34,6 @@
 
 #include "serverclient.h"
 #include "connection.h"
-
 #include <QDataStream>
 #include <QStringList>
 

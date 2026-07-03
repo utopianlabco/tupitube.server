@@ -31,6 +31,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
+
 #include "server.h"
 #include "connection.h"
 #include "tconfig.h"
@@ -47,7 +48,6 @@
 #include "connectparser.h"
 #include "../modules/students/ack.h"
 #include "../modules/students/ban.h"
-
 #include <QHostInfo>
 #include <QTimer>
 #include <QQueue>
@@ -60,13 +60,12 @@
 
 TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::TcpServer()]";
-    #endif 
-
-    #ifndef TUPITUBE_TEST
-         initDataBase();
-     #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::TcpServer()]";
+#endif
+#ifndef TUPITUBE_TEST
+    initDataBase();
+#endif
 
     m_studentManager = new StudentManager(this);
     connect(m_studentManager, &StudentManager::studentConnected, this, &TcpServer::studentConnected);
@@ -98,37 +97,33 @@ void TcpServer::initDataBase()
     TCONFIG->beginGroup("Database");
     QString driver = TCONFIG->value("Driver").toString();
     m_db = QSqlDatabase::addDatabase(driver);
-
-    #ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::initDataBase()] - Config file path:" << TCONFIG->configPath();
-        qDebug() << "[TcpServer::initDataBase()] - DB Drivers:" << QSqlDatabase::drivers();
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::initDataBase()] - Config file path: " << TCONFIG->configPath();
+    qDebug() << "[TcpServer::initDataBase()] - DB Drivers: " << QSqlDatabase::drivers();
+#endif
 
     if (driver == "QSQLITE") {
-        // SQLite: Get database path and name
         QString dbDir = TCONFIG->value("DatabasePath").toString();
         QString dbName = TCONFIG->value("DbName", "tupitube.db").toString();
         QString dbPath = dbDir + "/" + dbName;
 
-        // Create directory if it doesn't exist
         QDir dir(dbDir);
         if (!dir.exists()) {
-            #ifdef TUP_DEBUG
-                qDebug() << "[TcpServer::initDataBase()] - Creating database directory:" << dbDir;
-            #endif
+#ifdef TUP_DEBUG
+            qDebug() << "[TcpServer::initDataBase()] - Creating database directory: " << dbDir;
+#endif
             if (!dir.mkpath(".")) {
-                qCritical() << "[TcpServer::initDataBase()] - Failed to create database directory:" << dbDir;
+                qCritical() << "[TcpServer::initDataBase()] - Failed to create database directory: " << dbDir;
                 exit(1);
             }
         }
 
-        #ifdef TUP_DEBUG
-            qDebug() << "[TcpServer::initDataBase()] - Using DB driver:" << driver;
-            qDebug() << "[TcpServer::initDataBase()] - Using DB path:" << dbPath;
-        #endif
+#ifdef TUP_DEBUG
+        qDebug() << "[TcpServer::initDataBase()] - Using DB driver: " << driver;
+        qDebug() << "[TcpServer::initDataBase()] - Using DB path: " << dbPath;
+#endif
         m_db.setDatabaseName(dbPath);
     } else {
-        // MySQL/PostgreSQL: use host, port, credentials
         m_db.setHostName(TCONFIG->value("Host").toString());
         m_db.setPort(TCONFIG->value("Port").toInt());
         m_db.setDatabaseName(TCONFIG->value("DbName").toString());
@@ -141,26 +136,24 @@ void TcpServer::initDataBase()
     bool ok = m_db.open();
     if (!ok) {
         QSqlError error = m_db.lastError();
-        #ifdef TUP_DEBUG
-               qDebug() << "[TcpServer::initDataBase()] - Fatal Error: Cannot connect to DB server...";
-               qDebug() << "[TcpServer::initDataBase()] - Description: " << error.text();
-        #endif
+#ifdef TUP_DEBUG
+        qDebug() << "[TcpServer::initDataBase()] - Fatal Error: Cannot connect to DB server...";
+        qDebug() << "[TcpServer::initDataBase()] - Description: " << error.text();
+#endif
         exit(1);
     }
 
-    // Enforce foreign key constraints for SQLite and check schema
     if (driver == "QSQLITE") {
         QSqlQuery pragmaQuery(m_db);
         pragmaQuery.exec("PRAGMA foreign_keys = ON;");
 
-        // Check that the foreign key constraint on tupitube_project.student_id is ON DELETE RESTRICT
         QSqlQuery fkQuery(m_db);
         fkQuery.exec("PRAGMA foreign_key_list('tupitube_project')");
         bool foundRestrict = false;
         while (fkQuery.next()) {
-            QString from = fkQuery.value(3).toString(); // 'from' column
-            QString to = fkQuery.value(4).toString();   // 'to' column
-            QString onDelete = fkQuery.value(6).toString(); // 'on_delete' column
+            QString from = fkQuery.value(3).toString();
+            QString to = fkQuery.value(4).toString();
+            QString onDelete = fkQuery.value(6).toString();
             if (from == "student_id" && to == "student_id" && onDelete.toUpper() == "RESTRICT") {
                 foundRestrict = true;
                 break;
@@ -171,10 +164,6 @@ void TcpServer::initDataBase()
         }
     }
 
-    // Check if tables exist, create them if not
-    // (Schema creation is now handled by DatabaseHandler in TupServerWindow)
-
-    // Now that tables are created, check foreign key constraints only if the table exists
     if (driver == "QSQLITE") {
         QStringList tables = m_db.tables();
         if (tables.contains("tupitube_project")) {
@@ -182,9 +171,9 @@ void TcpServer::initDataBase()
             fkQuery.exec("PRAGMA foreign_key_list('tupitube_project')");
             bool foundRestrict = false;
             while (fkQuery.next()) {
-                QString from = fkQuery.value(3).toString(); // 'from' column
-                QString to = fkQuery.value(4).toString();   // 'to' column
-                QString onDelete = fkQuery.value(6).toString(); // 'on_delete' column
+                QString from = fkQuery.value(3).toString();
+                QString to = fkQuery.value(4).toString();
+                QString onDelete = fkQuery.value(6).toString();
                 if (from == "student_id" && to == "student_id" && onDelete.toUpper() == "RESTRICT") {
                     foundRestrict = true;
                     break;
@@ -196,7 +185,7 @@ void TcpServer::initDataBase()
         }
     }
 
-    TCONFIG->endGroup(); // Database
+    TCONFIG->endGroup();
 }
 
 bool TcpServer::openConnection(const QString &host, int port)
@@ -204,23 +193,20 @@ bool TcpServer::openConnection(const QString &host, int port)
     QList<QHostAddress> address = QHostInfo::fromName(host).addresses();
     if (!address.isEmpty()) {
         if (!listen(QHostAddress::Any, port)) {
-            #ifdef TUP_DEBUG
-                   qDebug() << "[TcpServer::openConnection()] - Error: Can't connect to " << host << ":" << port;
-                   qDebug() << "[TcpServer::openConnection()] - Description: " << errorString();
-            #endif
-
+#ifdef TUP_DEBUG
+            qDebug() << "[TcpServer::openConnection()] - Error: Can't connect to " << host << ": " << port;
+            qDebug() << "[TcpServer::openConnection()] - Description: " << errorString();
+#endif
             return false;
         }
     } else {
-        #ifdef TUP_DEBUG
-               qDebug() << "[TcpServer::openConnection()] - Error: Can't resolve address " << host;
-        #endif
-
+#ifdef TUP_DEBUG
+        qDebug() << "[TcpServer::openConnection()] - Error: Can't resolve address " << host;
+#endif
         return false;
     }
 
     Logger::self()->info(QObject::tr("TupiTube media server started on %1:%2").arg(host).arg(port));
-
     return true;
 }
 
@@ -251,57 +237,47 @@ bool TcpServer::removeObserver(Observer *observer)
 
 void TcpServer::incomingConnection(qintptr socketDescriptor)
 {
-    #ifdef TUP_DEBUG
-        QDate date = QDate::currentDate();
-        QTime time = QTime::currentTime();
-        QString today = date.toString("yyyy-MM-dd");
-        QString now = time.toString("hh:mm:ss");
-        QString record = "[" + today + " " + now + "]";
-        qDebug() << "";
-        qDebug() << ("" + record);
-        qWarning() << "[TcpServer::incomingConnection()] - Handling connection #" << m_connections.count();
-        qDebug() << "[TcpServer::incomingConnection()] - New connection detected!";
-    #endif
+#ifdef TUP_DEBUG
+    QDate date = QDate::currentDate();
+    QTime time = QTime::currentTime();
+    QString today = date.toString("yyyy-MM-dd");
+    QString now = time.toString("hh:mm:ss");
+    QString record = "[" + today + " " + now + "]";
+    qDebug() << " ";
+    qDebug() << record;
+    qWarning() << "[TcpServer::incomingConnection()] - Handling connection # " << m_connections.count();
+    qDebug() << "[TcpServer::incomingConnection()] - New connection detected!";
+#endif
 
     Connection *newConnection = new Connection(socketDescriptor, this);
     if (newConnection) {
         handle(newConnection);
         m_connections << newConnection;
-        newConnection->startTimer(600000); // 10 minutes
+        newConnection->startTimer(600000);
         newConnection->start();
 
         emit connectionCountChanged(m_connections.count());
     } else {
-        #ifdef TUP_DEBUG
-               qDebug() << "[TcpServer::incomingConnection()] - Fatal Error: while setting connection";
-        #endif
+#ifdef TUP_DEBUG
+        qDebug() << "[TcpServer::incomingConnection()] - Fatal Error: while setting connection";
+#endif
     }
 }
 
 void TcpServer::handle(Connection *connection)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::handle()] - Processing new connection";
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::handle()] - Processing new connection";
+#endif
 
-    connect(connection, SIGNAL(finished()), connection, SLOT(deleteLater()));
+    connect(connection, SIGNAL(requestSendToAll(const QString &)),
+            this, SLOT(sendToAll(const QString &)));
 
-    qDebug() << "[TcpServer::handle()] - FLAG 0";
-
-    connect(connection, SIGNAL(requestSendToAll(const QString&)), 
-            this, SLOT(sendToAll(const QString&)));
-
-    qDebug() << "[TcpServer::handle()] - FLAG 1";
-
-    connect(connection, SIGNAL(packageReaded(Connection*, const QString&, const QString&)),
-            this, SLOT(handlePackage(Connection*, const QString&, const QString&)));
-
-    qDebug() << "[TcpServer::handle()] - FLAG 2";
+    connect(connection, SIGNAL(packageReaded(Connection*, const QString &, const QString &)),
+            this, SLOT(handlePackage(Connection*, const QString &, const QString &)));
 
     connect(connection, SIGNAL(connectionClosed(Connection*)),
             this, SLOT(removeConnection(Connection*)));
-
-    qDebug() << "[TcpServer::handle()] - FLAG 3";
 }
 
 void TcpServer::sendToAll(const QString &msg)
@@ -312,63 +288,54 @@ void TcpServer::sendToAll(const QString &msg)
 
 void TcpServer::sendToAll(const QDomDocument &pkg)
 {
-    #ifdef TUP_DEBUG 
-        qDebug() << "[TcpServer::sendToAll()]";
-    #endif
-
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::sendToAll()]";
+#endif
     sendToAll(pkg.toString(0));
 }
 
 void TcpServer::sendToAdmins(const QString &message)
 {
-    #ifdef TUP_DEBUG
-           qDebug() << "[TcpServer::sendToAdmins()] - Sending:";
-           qWarning() << message;
-    #endif
-
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::sendToAdmins()] - Sending:";
+    qWarning() << message;
+#endif
     foreach (Connection *connection, m_managers)
         connection->sendStringToClient(message);
 }
 
 void TcpServer::removeConnection(Connection *connection)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::removeConnection()]";
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::removeConnection()]";
+#endif
+
+    connection->blockSignals(true);
 
     m_connections.removeAll(connection);
     m_managers.removeAll(connection);
 
     emit connectionCountChanged(m_connections.count());
 
-    connection->blockSignals(true);
     connection->close();
-    connection->blockSignals(false);
-    
+
     foreach (Observer *observer, m_observers)
         observer->closeConnection(connection);
 
-    if (!connection->isRunning()) {
-        #ifdef TUP_DEBUG
-               qWarning() << "[TcpServer::removeConnection()] - Deleting connection pointer";
-        #endif
+    connection->wait(5000);
 
-        delete connection;
-        connection = 0;
-    }
+#ifdef TUP_DEBUG
+    qWarning() << "[TcpServer::removeConnection()] - Deleting connection pointer";
+#endif
 
-    #ifdef TUP_DEBUG
-        qDebug() << "";
-        qDebug() << "***";
-    #endif
+    delete connection;
 }
 
 void TcpServer::handlePackage(Connection* client, const QString &root, const QString &package)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::handlePackage()]";
-    #endif
-
+#ifdef TUP_DEBUG
+    qDebug() << "[TcpServer::handlePackage()]";
+#endif
     PackageBase *pkg = new PackageBase(root, package, client);
 
     if (root.startsWith("project_")) {
@@ -378,7 +345,6 @@ void TcpServer::handlePackage(Connection* client, const QString &root, const QSt
     } else if (root.startsWith("communication_")) {
         m_communicationManager->handlePackage(pkg);
     } else if (root.compare("ping") == 0) {
-        // Keep-alive probe from the client — no action needed
         delete pkg;
     }
 }
