@@ -1474,6 +1474,7 @@ void TupServerWindow::removeProject()
 
 void TupServerWindow::viewProjectChat()
 {
+    // 1. Get the selected project information
     int currentRow = m_projectsTable->currentRow();
     if (currentRow < 0) {
         QMessageBox::information(this, tr("Information"), tr("Please select a project first"));
@@ -1483,24 +1484,24 @@ void TupServerWindow::viewProjectChat()
     int projectId = m_projectsTable->item(currentRow, 0)->text().toInt();
     QString projectTitle = m_projectsTable->item(currentRow, 1)->text();
 
-    // Load chat messages for this project
+    // 2. Load chat messages for this project
     QList<DatabaseHandler::ChatMessage> messages = m_dbHandler->getChatHistory(projectId, 1000);
 
-    // Check if there are any messages
+    // 3. Check if there are any messages
     if (messages.isEmpty()) {
-        QMessageBox::information(this, tr("Chat History"), 
+        QMessageBox::information(this, tr("Chat History"),
             tr("No chat messages registered for project '%1'.").arg(projectTitle));
         return;
     }
 
-    // Create dialog
+    // 4. Create the main dialog
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Chat History - %1").arg(projectTitle));
     dialog.setMinimumSize(700, 500);
 
     QVBoxLayout *layout = new QVBoxLayout(&dialog);
 
-    // Chat messages table
+    // 5. Setup the Chat messages table
     QTableWidget *chatTable = new QTableWidget();
     chatTable->setColumnCount(4);
     chatTable->setHorizontalHeaderLabels({tr("Time"), tr("Student"), tr("Type"), tr("Message")});
@@ -1513,10 +1514,10 @@ void TupServerWindow::viewProjectChat()
     chatTable->setAlternatingRowColors(true);
     layout->addWidget(chatTable);
 
-    // Messages are in DESC order, reverse for display (oldest first)
+    // 6. Populate the table (Reverse order so oldest is at the top, newest at the bottom)
     for (int i = messages.count() - 1; i >= 0; i--) {
         const DatabaseHandler::ChatMessage &msg = messages[i];
-        
+
         int row = chatTable->rowCount();
         chatTable->insertRow(row);
 
@@ -1526,20 +1527,94 @@ void TupServerWindow::viewProjectChat()
         chatTable->setItem(row, 3, new QTableWidgetItem(msg.message));
     }
 
-    // Bottom buttons
+    // ==========================================
+    // ✅ BOTTOM BUTTONS (Export & Close aligned to the right)
+    // ==========================================
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    
+
+    // Push both buttons to the right side of the dialog
     buttonLayout->addStretch();
 
-    QPushButton *closeButton = new QPushButton(tr("Close"));
+    // Add the Export Button
+    QPushButton *exportButton = new QPushButton(tr("Export to CSV"), &dialog);
+    buttonLayout->addWidget(exportButton);
+
+    // Add the Close Button right next to it
+    QPushButton *closeButton = new QPushButton(tr("Close"), &dialog);
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
     buttonLayout->addWidget(closeButton);
 
     layout->addLayout(buttonLayout);
 
-    // Scroll to bottom (most recent messages)
-    chatTable->scrollToBottom();
+    // ==========================================
+    // ✅ EXPORT TO CSV LOGIC
+    // ==========================================
+    QObject::connect(exportButton, &QPushButton::clicked, [&]() {
+        // Sanitize the project title for a safe filename
+        QString safeTitle = projectTitle;
+        safeTitle.replace(QRegExp("[^a-zA-Z0-9_\\s]"), ""); // Remove special characters
+        safeTitle.replace(" ", "_");
+        QString defaultFileName = safeTitle + "_chat_history.csv";
 
+        // Open the Save File Dialog
+        QString filePath = QFileDialog::getSaveFileName(
+            &dialog,
+            tr("Export Chat History"),
+            defaultFileName,
+            tr("CSV Files (*.csv)")
+        );
+
+        if (filePath.isEmpty()) {
+            return; // User canceled the dialog
+        }
+
+        QFile file(filePath);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+
+            // Set UTF-8 encoding
+            out.setCodec("UTF-8");
+            // Write CSV Header
+            out << "Time,Student,Type,Message\n";
+
+            // Helper Lambda to safely escape CSV fields (handles commas, quotes, and newlines)
+            auto escapeCsvField = [](const QString &field) -> QString {
+                if (field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r')) {
+                    QString escaped = field;
+                    escaped.replace("\"", "\"\""); // Double up any existing quotes
+                    return "\"" + escaped + "\""; // Wrap the whole field in quotes
+                }
+                return field;
+            };
+
+            // Write Data Rows
+            for (const auto &msg : messages) {
+                out << escapeCsvField(msg.createdAt) << ","
+                    << escapeCsvField(msg.studentname) << ","
+                    << escapeCsvField(msg.messageType) << ","
+                    << escapeCsvField(msg.message) << "\n";
+            }
+
+            file.close();
+
+            // Show success message
+            QMessageBox::information(
+                &dialog,
+                tr("Export Successful"),
+                tr("The chat history has been successfully exported to:\n%1").arg(filePath)
+            );
+        } else {
+            // Show error if file couldn't be opened
+            QMessageBox::critical(
+                &dialog,
+                tr("Export Failed"),
+                tr("Could not open the file for writing. Please check permissions or try another location.")
+            );
+        }
+    });
+
+    // 7. Scroll to the bottom (most recent messages) and show the dialog
+    chatTable->scrollToBottom();
     dialog.exec();
 }
 
