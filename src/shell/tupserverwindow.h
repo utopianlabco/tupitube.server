@@ -199,7 +199,8 @@ private:
 
     // Settings tab widgets
     QComboBox *m_hostCombo;
-    QSpinBox *m_portSpin;
+    QSpinBox *m_portSpin;    
+    QSpinBox *m_timeoutSpin;
     QLineEdit *m_dataPathEdit;
     QLabel *m_databasePathLabel;
     QLabel *m_cachePathLabel;

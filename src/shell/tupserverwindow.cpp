@@ -195,6 +195,9 @@ void TupServerWindow::loadSettings()
     }
     m_hostCombo->setCurrentIndex(index);
     m_portSpin->setValue(TCONFIG->value("Port", 8080).toInt());
+
+    int savedTimeout = TCONFIG->value("InactivityTimeout", 10).toInt();
+    m_timeoutSpin->setValue(savedTimeout);
     TCONFIG->endGroup();
 
     // Load Data Path
@@ -292,6 +295,7 @@ void TupServerWindow::saveConfigSettings()
         hostText = hostText.section(" (", 0, 0);
     TCONFIG->setValue("Host", hostText);
     TCONFIG->setValue("Port", m_portSpin->value());
+    TCONFIG->setValue("InactivityTimeout", m_timeoutSpin->value());
     TCONFIG->endGroup();
 
     // Save Data Path and derive all other paths from it

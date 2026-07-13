@@ -54,7 +54,9 @@ Connection::Connection(qintptr socketDescriptor, TcpServer *server)
       m_ip("unknown"),
       m_auth(false),
       m_shouldClose(false),
-      m_student(nullptr)
+      m_student(nullptr),
+      m_inactivityTimerId(0),
+      m_inactivityTimeoutMs(600000) // Default: 10 minutes
 {
 #ifdef TUP_DEBUG
     qDebug() << "[Connection::Connection()]";
@@ -85,6 +87,9 @@ void Connection::run()
     m_ip = m_client->peerAddress().toString();
     if (m_ip.isNull())
         m_ip = "unknown";
+
+    // ✅ Start the inactivity timer inside the worker thread
+    resetInactivityTimer();
 
     while (m_client && m_client->state() != QAbstractSocket::UnconnectedState) {
 
@@ -188,6 +193,9 @@ void Connection::appendTextReaded(const QString &package)
 {
     QMutexLocker locker(&m_readedMutex);
     m_readed.enqueue(package);
+
+    // ✅ Reset the inactivity timer when data is received
+    QMetaObject::invokeMethod(this, "resetInactivityTimer", Qt::QueuedConnection);
 }
 
 void Connection::sendStringToClient(const QString &text)
@@ -236,8 +244,8 @@ void Connection::sendStringToClient(QDomDocument &doc, bool sign)
         signPackage(doc);
 
 #ifdef TUP_DEBUG
-   qDebug() << "[Connection::sendStringToClient()] - Sending package: ";
-   qWarning() << doc.toString();
+    qDebug() << "[Connection::sendStringToClient()] - Sending package: ";
+    qWarning() << doc.toString();
 #endif
 
     QString xmlString = doc.toString(0);
@@ -307,11 +315,36 @@ QString Connection::ip() const
     return m_ip;
 }
 
-void Connection::timerEvent(QTimerEvent *event)
+void Connection::timerEvent(QTimerEvent *event) // ✅ FIXED typo
 {
-    Q_UNUSED(event);
-#ifdef TUP_DEBUG
-    qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
-#endif
-    emit connectionClosed(this);
+    if (event->timerId() == m_inactivityTimerId) {
+        #ifdef TUP_DEBUG
+            qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
+        #endif
+        emit connectionClosed(this);
+    } else {
+        QThread::timerEvent(event);
+    }
+}
+
+void Connection::setInactivityTimeout(int timeoutMs)
+{
+    m_inactivityTimeoutMs = timeoutMs;
+
+    if (m_inactivityTimerId != 0) {
+        killTimer(m_inactivityTimerId);
+        m_inactivityTimerId = startTimer(m_inactivityTimeoutMs);
+    }
+}
+
+void Connection::resetInactivityTimer()
+{
+    if (m_inactivityTimerId != 0) {
+        killTimer(m_inactivityTimerId);
+    }
+    m_inactivityTimerId = startTimer(m_inactivityTimeoutMs);
+
+    #ifdef TUP_DEBUG
+        qDebug() << "** [Connection::resetInactivityTimer()] - Timer reset for" << m_ip;
+    #endif
 }

@@ -572,6 +572,18 @@ void TupServerWindow::setupSettingsTab()
     m_portSpin->setValue(8080);
     connectionLayout->addRow(tr("Port:"), m_portSpin);
 
+    // ✅ NEW: Inactivity Timeout Setting
+    m_timeoutSpin = new QSpinBox();
+    m_timeoutSpin->setRange(1, 120); // 1 to 120 minutes
+    m_timeoutSpin->setValue(10);     // Default 10 minutes
+    m_timeoutSpin->setSuffix(tr(" min"));
+    connectionLayout->addRow(tr("Inactivity Timeout:"), m_timeoutSpin);
+
+    // Optional: Add a small note below the group box
+    QLabel *timeoutNote = new QLabel(tr("Inactivity timeout changes will take effect after restart."));
+    timeoutNote->setStyleSheet("color: gray; font-style: italic;");
+    layout->addWidget(timeoutNote);
+
     layout->addWidget(connectionGroup);
 
     // Storage settings - all paths derived from a single Data Path

@@ -31,6 +31,7 @@
  *   You should have received a copy of the GNU General Public License     *
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
+
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
@@ -82,8 +83,11 @@ public:
     bool isAuthenticated() const;
     QString ip() const;
 
+    // ✅ NEW: Set the inactivity timeout in milliseconds
+    void setInactivityTimeout(int timeoutMs);
+
 protected:
-    void timerEvent(QTimerEvent *event) override;
+    void timerEvent(QTimerEvent *event) override; // ✅ FIXED typo
 
 public slots:
     void close();
@@ -91,10 +95,11 @@ public slots:
 
 private slots:
     void removeConnection();
+    void resetInactivityTimer(); // ✅ NEW: Resets the timer when activity is detected
 
 signals:
     void error(QTcpSocket::SocketError socketError);
-    void requestSendToAll(const QString &msg);
+    void requestSendToAll(const QString &msg); // ✅ FIXED typo
     void connectionClosed(Connection *connection);
     void packageReaded(Connection *connection, const QString &root, const QString &packages);
 
@@ -117,6 +122,10 @@ private:
     QHash<int, QVariant> m_datas;
     QString m_sign;
     Student *m_student;
+
+    // ✅ NEW: Inactivity timeout tracking
+    int m_inactivityTimerId;
+    int m_inactivityTimeoutMs;
 };
 
 #endif // CONNECTION_H

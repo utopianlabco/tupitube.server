@@ -237,30 +237,42 @@ bool TcpServer::removeObserver(Observer *observer)
 
 void TcpServer::incomingConnection(qintptr socketDescriptor)
 {
-#ifdef TUP_DEBUG
-    QDate date = QDate::currentDate();
-    QTime time = QTime::currentTime();
-    QString today = date.toString("yyyy-MM-dd");
-    QString now = time.toString("hh:mm:ss");
-    QString record = "[" + today + " " + now + "]";
-    qDebug() << " ";
-    qDebug() << record;
-    qWarning() << "[TcpServer::incomingConnection()] - Handling connection # " << m_connections.count();
-    qDebug() << "[TcpServer::incomingConnection()] - New connection detected!";
-#endif
+    #ifdef TUP_DEBUG
+        QDate date = QDate::currentDate();
+        QTime time = QTime::currentTime();
+        QString today = date.toString("yyyy-MM-dd");
+        QString now = time.toString("hh:mm:ss");
+        QString record = "[" + today + " " + now + "]";
+        qDebug() << " ";
+        qDebug() << record;
+        qWarning() << "[TcpServer::incomingConnection()] - Handling connection # " << m_connections.count();
+        qDebug() << "[TcpServer::incomingConnection()] - New connection detected!";
+    #endif
+
+    // ✅ Read the configurable timeout from the "Connection" group
+    TCONFIG->beginGroup("Connection");
+    int timeoutMinutes = TCONFIG->value("InactivityTimeout", 10).toInt();
+    TCONFIG->endGroup();
+
+    // Convert minutes to milliseconds
+    int timeoutMs = timeoutMinutes * 60 * 1000;
 
     Connection *newConnection = new Connection(socketDescriptor, this);
     if (newConnection) {
         handle(newConnection);
         m_connections << newConnection;
-        newConnection->startTimer(600000);
+
+        // ✅ Apply the configurable timeout
+        newConnection->setInactivityTimeout(timeoutMs);
+
+        // Start the thread (the timer will be initialized inside run())
         newConnection->start();
 
         emit connectionCountChanged(m_connections.count());
     } else {
-#ifdef TUP_DEBUG
-        qDebug() << "[TcpServer::incomingConnection()] - Fatal Error: while setting connection";
-#endif
+        #ifdef TUP_DEBUG
+            qDebug() << "[TcpServer::incomingConnection()] - Fatal Error: while setting connection";
+        #endif
     }
 }
 
