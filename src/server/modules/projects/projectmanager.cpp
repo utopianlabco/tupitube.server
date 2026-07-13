@@ -357,7 +357,7 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     connection->setData(Info::ProjectIsOpen, true);
     m_openedProjects.insert(filename, project);
 
-    QString absolutePath = kAppProp->repositoryDir() + uid + "/projects/" + filename + "/" + filename + ".tup";
+    QString absolutePath = kAppProp->repositoryDir() + "/projects/" + uid + "/sources/" + filename + "/" + filename + ".tup";
 
     // Get project ID from database
     QString projectId = m_dbHandler->exists(filename, uid);

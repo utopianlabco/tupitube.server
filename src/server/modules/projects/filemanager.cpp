@@ -59,18 +59,20 @@ QString cleanBasePath(const QString &path)
 QString studentPathFor(int uid)
 {
     const QString repoDir = cleanBasePath(kAppProp->repositoryDir());
-    return QDir(repoDir).filePath(QString::number(uid));
+    QString projectsDir = QDir(repoDir).filePath("projects");
+    return QDir(projectsDir).filePath(QString::number(uid));
 }
 
 QString studentPathFor(const QString &uid)
 {
     const QString repoDir = cleanBasePath(kAppProp->repositoryDir());
-    return QDir(repoDir).filePath(uid);
+    QString projectsDir = QDir(repoDir).filePath("projects");
+    return QDir(projectsDir).filePath(uid);
 }
 
 QString projectDirectoryPath(const QString &studentPath, const QString &filename)
 {
-    return QDir(QDir(studentPath).filePath("projects")).filePath(filename);
+    return QDir(QDir(studentPath).filePath("sources")).filePath(filename);
 }
 
 QString projectPackagePath(const QString &studentPath, const QString &filename)
@@ -93,7 +95,7 @@ bool createStudentDirectories(const QString &studentPath)
 {
     QDir dir;
 
-    if (!dir.mkpath(QDir(studentPath).filePath("projects")))
+    if (!dir.mkpath(QDir(studentPath).filePath("sources")))
         return false;
 
     if (!dir.mkpath(QDir(QDir(studentPath).filePath("animations")).filePath("thumbnails")))
