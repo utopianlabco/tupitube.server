@@ -315,13 +315,24 @@ QString Connection::ip() const
     return m_ip;
 }
 
-void Connection::timerEvent(QTimerEvent *event) // ✅ FIXED typo
+void Connection::timerEvent(QTimerEvent *event)
 {
     if (event->timerId() == m_inactivityTimerId) {
-        #ifdef TUP_DEBUG
+    #ifdef TUP_DEBUG
             qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
-        #endif
-        emit connectionClosed(this);
+    #endif
+    // 1. Create the inactivity disconnect package
+        QDomDocument doc;
+        QDomElement root = doc.createElement("disconnect");
+        root.setAttribute("reason", "inactivity");
+        doc.appendChild(root);
+
+        // 2. Queue it to be sent to the client
+        sendStringToClient(doc);
+
+        // 3. Trigger graceful shutdown.
+        // The run() loop will see m_shouldClose=true, flush the socket (sending our package), and close.
+        close();
     } else {
         QThread::timerEvent(event);
     }
