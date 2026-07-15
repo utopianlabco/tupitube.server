@@ -497,7 +497,7 @@ void TupServerWindow::onStudentConnected(const QString &studentname, const QStri
     appendLog(tr("Student connected: %1 from %2").arg(studentname).arg(ip), "INFO");
 }
 
-void TupServerWindow::onStudentDisconnected(const QString &studentname)
+void TupServerWindow::onStudentDisconnected(const QString &studentname, bool byInactivity)
 {
     // Find and remove student from table
     for (int row = 0; row < m_connectedStudentsTable->rowCount(); ++row) {
@@ -508,7 +508,10 @@ void TupServerWindow::onStudentDisconnected(const QString &studentname)
         }
     }
 
-    appendLog(tr("Student disconnected: %1").arg(studentname), "INFO");
+    if (byInactivity)
+        appendLog(tr("Student disconnected by inactivity: %1").arg(studentname), "INFO");
+    else
+        appendLog(tr("Student disconnected: %1").arg(studentname), "INFO");
 }
 
 void TupServerWindow::onLogMessage(const QString &message, const QString &level)

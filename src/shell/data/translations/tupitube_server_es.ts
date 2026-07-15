@@ -312,6 +312,10 @@
         <source>Passwords match</source>
         <translation>Las contraseñas coinciden</translation>
     </message>
+    <message>
+        <source>Student &quot;%1&quot; has been disconnected due to inactivity [%2]</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>TupServerWindow</name>
@@ -1506,16 +1510,20 @@ Esta acción no se puede deshacer.</translation>
         <translation>Error al iniciar el servidor en %1:%2\n\nPor favor, compruebe si el puerto ya está en uso.</translation>
     </message>
     <message>
+        <source>Student disconnected by inactivity: %1</source>
+        <translation>Estudiante desconectado por inactividad: %1</translation>
+    </message>
+    <message>
         <source>You must create at least one user before creating a project.\n\nPlease add a user in the Students tab first.</source>
         <translation>Debes crear al menos un usuario antes de crear un proyecto.\n\nPor favor, añade primero un usuario en la pestaña Estudiantes.</translation>
     </message>
     <message>
-        <source>Are you sure you want to delete the project '%1' owned by '%2'?\n\nThis will remove the project from the database and delete all associated files.\nThis action cannot be undone.</source>
-        <translation>¿Está seguro de que desea eliminar el proyecto '%1' propiedad de '%2'?\n\nEsto eliminará el proyecto de la base de datos y borrará todos los archivos asociados.\nEsta acción no se puede deshacer.</translation>
+        <source>Are you sure you want to delete the project &apos;%1&apos; owned by &apos;%2&apos;?\n\nThis will remove the project from the database and delete all associated files.\nThis action cannot be undone.</source>
+        <translation>¿Está seguro de que desea eliminar el proyecto &apos;%1&apos; propiedad de &apos;%2&apos;?\n\nEsto eliminará el proyecto de la base de datos y borrará todos los archivos asociados.\nEsta acción no se puede deshacer.</translation>
     </message>
     <message>
-        <source>Failed to render \"%1\":\n\n%2</source>
-        <translation>Error al renderizar "%1":\n\n%2</translation>
+        <source>Failed to render &quot;%1&quot;:\n\n%2</source>
+        <translation>Error al renderizar &quot;%1&quot;:\n\n%2</translation>
     </message>
 </context>
 </TS>

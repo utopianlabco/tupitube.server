@@ -224,6 +224,6 @@ void StudentManager::closeConnection(Connection *connection)
     if (student) {
         QString studentname = student->login();
         m_online.removeAll(studentname);
-        emit studentDisconnected(studentname);
+        emit studentDisconnected(studentname, connection->disconnectedByInactivity());
     }
 }

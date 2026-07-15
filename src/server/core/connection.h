@@ -83,8 +83,8 @@ public:
     bool isAuthenticated() const;
     QString ip() const;
 
-    // ✅ NEW: Set the inactivity timeout in milliseconds
     void setInactivityTimeout(int timeoutMs);
+    bool disconnectedByInactivity() const { return m_disconnectedByInactivity; }
 
 protected:
     void timerEvent(QTimerEvent *event) override; // ✅ FIXED typo
@@ -126,6 +126,7 @@ private:
     // ✅ NEW: Inactivity timeout tracking
     int m_inactivityTimerId;
     int m_inactivityTimeoutMs;
+    bool m_disconnectedByInactivity = false;
 };
 
 #endif // CONNECTION_H

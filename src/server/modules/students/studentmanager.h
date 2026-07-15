@@ -55,8 +55,8 @@ class StudentManager : public Observer
 
     signals:
         void studentConnected(const QString &studentname, const QString &ip);
-        void studentDisconnected(const QString &studentname);
-        
+        void studentDisconnected(const QString &studentname, bool byInactivity = false);
+
     private:
         bool verifyPassword(const QString &studentname, const QString &password);
         bool studentExists(const QString &studentname);

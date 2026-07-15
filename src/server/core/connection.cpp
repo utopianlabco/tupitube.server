@@ -173,8 +173,13 @@ void Connection::removeConnection()
 
 void Connection::close()
 {
-    if (m_student && isAuthenticated())
-        Logger::self()->info(QObject::tr("Student \"%1\" has logged off [%2]").arg(m_student->login(), m_ip));
+    if (m_student && isAuthenticated()) {
+        if (m_disconnectedByInactivity) {
+           Logger::self()->info(QObject::tr("Student \"%1\" has been disconnected due to inactivity [%2]").arg(m_student->login(), m_ip));
+        } else {
+           Logger::self()->info(QObject::tr("Student \"%1\" has logged off [%2]").arg(m_student->login(), m_ip));
+        }
+    }
 
     setAuthenticationFlag(false);
 
@@ -318,19 +323,20 @@ QString Connection::ip() const
 void Connection::timerEvent(QTimerEvent *event)
 {
     if (event->timerId() == m_inactivityTimerId) {
-    #ifdef TUP_DEBUG
-            qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
-    #endif
-    // 1. Create the inactivity disconnect package
+        #ifdef TUP_DEBUG
+                qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
+        #endif
+        m_disconnectedByInactivity = true;
+        // Creating the inactivity disconnect package
         QDomDocument doc;
         QDomElement root = doc.createElement("disconnect");
         root.setAttribute("reason", "inactivity");
         doc.appendChild(root);
 
-        // 2. Queue it to be sent to the client
+        // Queueing it to be sent to the client
         sendStringToClient(doc);
 
-        // 3. Trigger graceful shutdown.
+        // Triggering graceful shutdown
         // The run() loop will see m_shouldClose=true, flush the socket (sending our package), and close.
         close();
     } else {

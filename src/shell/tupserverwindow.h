@@ -76,7 +76,7 @@ private slots:
     void onServerStopped();
     void onConnectionCountChanged(int count);
     void onStudentConnected(const QString &studentName, const QString &ip);
-    void onStudentDisconnected(const QString &studentName);
+    void onStudentDisconnected(const QString &studentname, bool byInactivity = false);
     void onLogMessage(const QString &message, const QString &level);
     void saveSettings();
     void trayIconActivated(QSystemTrayIcon::ActivationReason reason);

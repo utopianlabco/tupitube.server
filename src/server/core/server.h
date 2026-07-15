@@ -71,7 +71,7 @@ class TcpServer : public QTcpServer
     signals:
         void connectionCountChanged(int count);
         void studentConnected(const QString &studentname, const QString &ip);
-        void studentDisconnected(const QString &studentname);
+        void studentDisconnected(const QString &studentname, bool byInactivity = false);
         void logMessage(const QString &message, const QString &level);
         void projectRegistered(const QString &filename);
 
