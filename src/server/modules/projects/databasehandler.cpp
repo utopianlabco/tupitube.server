@@ -1042,6 +1042,60 @@ QList<DatabaseHandler::ProjectRecord> DatabaseHandler::getAllProjects() const
     return projects;
 }
 
+DatabaseHandler::ProjectRecord DatabaseHandler::getProjectById(int projectId) const
+{
+    #ifdef TUP_DEBUG
+        qDebug() << "[DatabaseHandler::getProjectById()] - Searching for projectId:" << projectId;
+    #endif
+
+    ProjectRecord record;
+    QString sql = "SELECT p.project_id, p.title, p.filename, p.student_id, u.studentname, p.description, "
+                  "p.created_at, p.is_shared, p.class_id, c.name, p.period_id, per.name, p.group_project, "
+                  "p.last_rendered_at, p.updated_at "
+                  "FROM tupitube_project p "
+                  "LEFT JOIN tupitube_student u ON p.student_id = u.student_id "
+                  "LEFT JOIN tupitube_class c ON p.class_id = c.class_id "
+                  "LEFT JOIN tupitube_period per ON p.period_id = per.period_id "
+                  "WHERE p.project_id = :projectId";
+
+    QSqlQuery query;
+    query.prepare(sql);
+    query.bindValue(":projectId", projectId);
+
+    if (query.exec() && query.next()) {
+        // Map the exact same 15 columns to the ProjectRecord struct
+        record.projectId = query.value(0).toInt();
+        record.title = query.value(1).toString();
+        record.filename = query.value(2).toString();
+        record.ownerId = query.value(3).toInt();
+        record.ownerStudentname = query.value(4).toString();
+        record.description = query.value(5).toString();
+        record.createdAt = query.value(6).toString();
+        record.isShared = query.value(7).toBool();
+        record.classId = query.value(8).toInt();
+        record.className = query.value(9).toString();
+        record.periodId = query.value(10).toInt();
+        record.periodName = query.value(11).toString();
+        record.groupProject = query.value(12).toBool();
+        record.lastRenderedAt = query.value(13).toString();
+        record.updatedAt = query.value(14).toString();
+    } else {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::getProjectById()] - Project not found or query failed for ID ->" << projectId;
+        #endif
+    }
+
+    query.clear();
+
+    #ifdef TUP_DEBUG
+        if (record.projectId > 0) {
+            qDebug() << "[DatabaseHandler::getProjectById()] - Successfully found project ->" << record.title;
+        }
+    #endif
+
+    return record;
+}
+
 QList<DatabaseHandler::CollaboratorInfo> DatabaseHandler::getProjectCollaborators(int projectId) const
 {
     #ifdef TUP_DEBUG

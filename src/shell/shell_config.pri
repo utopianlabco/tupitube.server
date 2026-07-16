@@ -5,7 +5,7 @@ exists ($$PRI_FILE) {
     error("[shell] Please, run configure first")
 }
 
-QT += network xml sql
+QT += network xml sql concurrent
 
 INCLUDEPATH += ../server/base ../server/core ../server/packages ../server/parsers ../server/modules/students ../server/modules/projects ../server/modules/backups ../server/modules/ban
 

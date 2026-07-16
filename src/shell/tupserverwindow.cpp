@@ -2159,37 +2159,54 @@ void TupServerWindow::refreshPeriodsList() {
     m_periodsTable->setSortingEnabled(true);
 }
 
-// === Render / Watch / Grade slots ===
-
 void TupServerWindow::playProject()
 {
     int row = m_projectsTable->currentRow();
-    if (row < 0) return;
+    if (row < 0) {
+        QMessageBox::information(this, tr("Information"), tr("Please select a project first"));
+        return;
+    }
 
     int projectId = m_projectsTable->item(row, 0)->text().toInt();
-    QString title  = m_projectsTable->item(row, 1)->text();
+    QString title = m_projectsTable->item(row, 1)->text();
 
-    // Find the project record to compare lastRenderedAt vs updatedAt
-    QList<DatabaseHandler::ProjectRecord> projects = m_dbHandler->getAllProjects();
-    DatabaseHandler::ProjectRecord record;
-    bool found = false;
-    for (const auto &p : projects) {
-        if (p.projectId == projectId) {
-            record = p;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
+    auto record = m_dbHandler->getProjectById(projectId);
+    if (record.projectId == 0) {
         QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project data."));
         return;
     }
 
     QString outputPath;
-
-    // Render if never rendered or if the project was modified after the last render
     bool renderNeeded = record.lastRenderedAt.isEmpty() ||
                         (!record.updatedAt.isEmpty() && record.updatedAt > record.lastRenderedAt);
+    if (!renderNeeded) {
+        DatabaseHandler::RenderProjectInfo info = m_dbHandler->getProjectRenderInfo(projectId);
+        if (info.found) {
+            TCONFIG->beginGroup("Render");
+            QString renderPath = TCONFIG->value("RenderPath").toString();
+            TCONFIG->endGroup();
+
+            if (renderPath.isEmpty()) {
+                renderPath = kAppProp->repositoryDir() + "/render";
+            }
+
+            QString basePath = QDir(QDir(renderPath).filePath(QString::number(info.studentId))).filePath(info.filename);
+            QString mp4Path = basePath + ".mp4";
+            QString imagePath = basePath + ".png";
+
+            if (QFile::exists(mp4Path)) {
+                outputPath = mp4Path;
+            } else if (QFile::exists(imagePath)) {
+                outputPath = imagePath;
+            }
+        }
+
+        // Self-healing: Force re-render if file is missing
+        if (outputPath.isEmpty()) {
+            appendLog(tr("Rendered file missing for '%1' despite DB flag. Forcing re-render...").arg(title), "WARNING");
+            renderNeeded = true;
+        }
+    }
 
     if (renderNeeded) {
         QProgressDialog progress(tr("Rendering \"%1\"...").arg(title), QString(), 0, 0, this);
@@ -2197,9 +2214,12 @@ void TupServerWindow::playProject()
         progress.setMinimumDuration(0);
         progress.show();
         QApplication::processEvents();
+        QApplication::setOverrideCursor(Qt::WaitCursor);
 
         ProjectRenderer::RenderResult result = m_projectRenderer->renderProject(projectId);
         progress.close();
+
+        QApplication::restoreOverrideCursor();
 
         if (!result.success) {
             appendLog(tr("Render failed for '%1': %2").arg(title, result.errorMessage), "ERROR");
@@ -2213,38 +2233,7 @@ void TupServerWindow::playProject()
         refreshProjectsList(m_projectFilterEdit ? m_projectFilterEdit->text() : QString());
     }
 
-    if (outputPath.isEmpty()) {
-        // Build possible rendered artifact paths and open the one that exists.
-        DatabaseHandler::RenderProjectInfo info = m_dbHandler->getProjectRenderInfo(projectId);
-        if (!info.found) {
-            QMessageBox::warning(this, tr("Error"), tr("Could not retrieve project render information."));
-            return;
-        }
-
-        TCONFIG->beginGroup("Render");
-        QString renderPath = TCONFIG->value("RenderPath").toString();
-        TCONFIG->endGroup();
-
-        if (renderPath.isEmpty())
-            renderPath = kAppProp->repositoryDir() + "/render";
-
-        QString basePath = QDir(QDir(renderPath).filePath(QString::number(info.studentId)))
-                               .filePath(info.filename);
-        QString mp4Path = basePath + ".mp4";
-        QString imagePath = basePath + ".png";
-
-        if (QFile::exists(mp4Path)) {
-            outputPath = mp4Path;
-        } else if (QFile::exists(imagePath)) {
-            outputPath = imagePath;
-        } else {
-            QMessageBox::warning(this, tr("File Not Found"),
-                                 tr("Rendered file not found. Expected one of:\n%1\n%2").arg(mp4Path, imagePath));
-            return;
-        }
-    }
-
-    if (!QFile::exists(outputPath)) {
+    if (outputPath.isEmpty() || !QFile::exists(outputPath)) {
         QMessageBox::warning(this, tr("File Not Found"),
                              tr("Rendered file not found:\n%1").arg(outputPath));
         return;

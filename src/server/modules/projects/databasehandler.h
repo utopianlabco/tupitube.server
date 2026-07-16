@@ -168,6 +168,7 @@ public:
         };
 
         QList<ProjectRecord> getAllProjects() const;
+        ProjectRecord getProjectById(int projectId) const;
         QList<CollaboratorInfo> getProjectCollaborators(int projectId) const;
         bool addCollaborator(int projectId, int studentId, int permissionLevel = 1);
         bool removeCollaborator(int projectId, int studentId);

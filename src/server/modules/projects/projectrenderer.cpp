@@ -113,10 +113,10 @@ bool ProjectRenderer::loadExportPlugin(const QString &expectedPlugin,
 
         found = true;
 
-#ifdef TUP_DEBUG
-        qDebug() << "[ProjectRenderer::loadExportPlugin()] -" << pluginLabel
-                 << "plugin found. Loading:" << fileName;
-#endif
+        #ifdef TUP_DEBUG
+            qDebug() << "[ProjectRenderer::loadExportPlugin()] -" << pluginLabel
+                     << "plugin found. Loading:" << fileName;
+        #endif
 
         const QString pluginPath = pluginDirectory.absoluteFilePath(fileName);
         QPluginLoader loader(pluginPath);
@@ -144,10 +144,10 @@ bool ProjectRenderer::loadExportPlugin(const QString &expectedPlugin,
 
         *targetExporter = exporter;
 
-#ifdef TUP_DEBUG
-        qDebug() << "[ProjectRenderer::loadExportPlugin()] -" << pluginLabel
-                 << "plugin loaded:" << pluginPath;
-#endif
+        #ifdef TUP_DEBUG
+                qDebug() << "[ProjectRenderer::loadExportPlugin()] -" << pluginLabel
+                         << "plugin loaded:" << pluginPath;
+        #endif
         return true;
     }
 
@@ -322,13 +322,13 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     QString studentIdStr = QString::number(info.studentId);
     QString filename = info.filename;
 
-#ifdef TUP_DEBUG
-    qDebug() << "[ProjectRenderer::renderProject()] - Rendering project:" << filename
-             << "owner:" << studentIdStr;
-#endif
+    #ifdef TUP_DEBUG
+        qDebug() << "[ProjectRenderer::renderProject()] - Rendering project:" << filename
+                 << "owner:" << studentIdStr;
+    #endif
 
     // --- 2. Locate the canonical .tup file ---
-    // <ProjectsPath>/<studentId>/projects/<filename>/<filename>.tup
+    // <ProjectsPath>/<studentId>/sources/<filename>/<filename>.tup
     TCONFIG->beginGroup("Projects");
     QString studentsDir = TCONFIG->value("ProjectsPath").toString();
     TCONFIG->endGroup();
@@ -336,7 +336,7 @@ ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
     if (studentsDir.isEmpty())
         studentsDir = kAppProp->repositoryDir();
 
-    QString projectDirPath = QDir(studentsDir).filePath(studentIdStr + "/projects/" + filename);
+    QString projectDirPath = QDir(studentsDir).filePath("projects/" + studentIdStr + "/sources/" + filename);
     QString tupPath = QDir(projectDirPath).filePath(filename + ".tup");
 
     if (!QFile::exists(tupPath)) {
