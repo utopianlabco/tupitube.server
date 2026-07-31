@@ -37,7 +37,7 @@
 #include <QDataStream>
 #include <QStringList>
 
-Client::Client(Connection *connection) : SocketBase(), m_connection(connection)
+Client::Client(Connection *connection,  QObject *parent) : SocketBase(parent), m_connection(connection)
 {
 }
 

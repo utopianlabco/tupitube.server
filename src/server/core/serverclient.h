@@ -44,7 +44,7 @@ class Client : public SocketBase
 {
     Q_OBJECT
 public:
-    Client(Connection *connection);
+    Client(Connection *connection, QObject *parent = nullptr);
     virtual ~Client();
 
     virtual void readed(const QString &readed);

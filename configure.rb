@@ -66,9 +66,13 @@ begin
     config.addModule("xml")
     config.addModule("network")
 
+    config.addLib("-L#{tupidir}/lib/tupitube -L#{tupidir}/lib/tupitube/plugins")
     config.addLib("-ltupifwgui")
     config.addLib("-ltupifwcore")
-    config.addLib("-L#{tupidir}/lib/tupitube -L#{tupidir}/lib/tupitube/plugins -ltupi -ltupistore -ltupibase -ltupiffmpegplugin")
+    config.addLib("-ltupi")
+    config.addLib("-ltupistore")
+    config.addLib("-ltupibase")
+    config.addLib("-ltupiffmpegplugin")
  
     config.addIncludePath(tupidir + "/include/tupi")
     config.addIncludePath(tupidir + "/include/tupistore")

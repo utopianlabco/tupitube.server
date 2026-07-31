@@ -110,6 +110,7 @@ private:
     QString m_ip;
     bool m_auth;
 
+    QString m_incomingBuffer;
     QQueue<QString> m_readed;
     QMutex m_readedMutex;
 

@@ -806,7 +806,14 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                 #endif
                 if (handleProjectRequest(projectID, package)) {
                     QDomDocument request;
-                    request.setContent(package);
+
+                    if (!request.setContent(package)) {
+                        qWarning()
+                            << "[ProjectManager::handlePackage()]"
+                            << "Unable to rebuild the project request DOM.";
+                        return;
+                    }
+
                     sendToProjectMembers(connection, request);
                 } else {
                     #ifdef TUP_DEBUG
@@ -1045,44 +1052,84 @@ void ProjectManager::closeConnection(Connection *connection)
     }
 }
 
-bool ProjectManager::handleProjectRequest(const QString &projectID, const QString request)
+bool ProjectManager::handleProjectRequest(
+    const QString &projectID,
+    const QString &request)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[ProjectManager::handleProjectRequest()]";
-        qWarning() << "[ProjectManager::handleProjectRequest()] - Looking for projectID:" << projectID;
-        qWarning() << "[ProjectManager::handleProjectRequest()] - Opened projects:" << m_openedProjects.keys();
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[ProjectManager::handleProjectRequest()]";
+    qWarning()
+        << "[ProjectManager::handleProjectRequest()]"
+        << "Looking for projectID:" << projectID;
+    qWarning()
+        << "[ProjectManager::handleProjectRequest()]"
+        << "Opened projects:" << m_openedProjects.keys();
+#endif
 
     TupRequestParser parser;
 
-    if (parser.parse(request)) {
-        NetProject *project = m_openedProjects.value(projectID);
-        if (project) {
-            #ifdef TUP_DEBUG
-                qWarning() << "[ProjectManager::handleProjectRequest()] - Project found, executing command...";
-            #endif
-            TupCommandExecutor *commandExecutor = new TupCommandExecutor(project);
-            TupProjectCommand command(commandExecutor, parser.getResponse());
-            command.redo();
-            delete commandExecutor;
-            project->resetTimer();
-
-            #ifdef TUP_DEBUG
-                qWarning() << "[ProjectManager::handleProjectRequest()] - Command executed successfully, returning true";
-            #endif
-            return true;
-        } else {
-            #ifdef TUP_DEBUG
-                   qDebug() << "[ProjectManager::handleProjectRequest()] - Fatal Error: Project " << projectID << " not found";
-            #endif
-        }
-    } else {
-        #ifdef TUP_DEBUG
-            qWarning() << "[ProjectManager::handleProjectRequest()] - Failed to parse request";
-        #endif
+    if (!parser.parse(request)) {
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Failed to parse request.";
+#endif
+        return false;
     }
-    
-    return false;
+
+    TupProjectResponse *response = parser.getResponse();
+
+    if (!response) {
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Parser returned no response.";
+        return false;
+    }
+
+    const QString commandId = response->getCommandId();
+
+    if (commandId.isEmpty()) {
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Project request has no command ID.";
+        return false;
+    }
+
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[ProjectManager::handleProjectRequest()]"
+        << "Executing command:" << commandId
+        << "Action:" << response->getAction()
+        << "Part:" << response->getPart();
+#endif
+
+    NetProject *project = m_openedProjects.value(projectID);
+
+    if (!project) {
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Project not found:" << projectID;
+#endif
+        return false;
+    }
+
+    TupCommandExecutor *commandExecutor =
+        new TupCommandExecutor(project);
+
+    TupProjectCommand command(commandExecutor, response);
+    command.redo();
+
+    delete commandExecutor;
+    project->resetTimer();
+
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[ProjectManager::handleProjectRequest()]"
+        << "Command dispatched:" << commandId;
+#endif
+
+    return true;
 }
 
 void ProjectManager::listStudentProjects(Connection *connection)
@@ -1100,38 +1147,100 @@ void ProjectManager::listStudentProjects(Connection *connection)
     connection->sendStringToClient(list.toString());
 }
 
-void ProjectManager::sendToProjectMembers(Connection *connection, QDomDocument &doc)
+void ProjectManager::sendToProjectMembers(
+    Connection *connection,
+    QDomDocument &doc)
 {
-    #ifdef TUP_DEBUG
-        qDebug() << "[ProjectManager::sendToProjectMembers()]";
-        qDebug() << "[ProjectManager::sendToProjectMembers()] - Sending request to clients...";
-    #endif
+#ifdef TUP_DEBUG
+    qDebug() << "[ProjectManager::sendToProjectMembers()]";
+    qDebug()
+        << "[ProjectManager::sendToProjectMembers()]"
+        << "Sending request to clients...";
+#endif
 
-    QString projectID = connection->data(Info::ProjectID).toString();
+    if (!connection) {
+        qWarning()
+            << "[ProjectManager::sendToProjectMembers()]"
+            << "Connection is null.";
+        return;
+    }
+
+    QDomElement root = doc.documentElement();
+
+    if (root.isNull()
+            || root.tagName() != QStringLiteral("project_request")) {
+        qWarning()
+            << "[ProjectManager::sendToProjectMembers()]"
+            << "Invalid project request document.";
+        return;
+    }
+
+    const QString commandId =
+        root.attribute(QStringLiteral("command_id"));
+
+    if (commandId.isEmpty()) {
+        qWarning()
+            << "[ProjectManager::sendToProjectMembers()]"
+            << "Cannot broadcast a request without a command ID.";
+        return;
+    }
+
+    const QString projectID =
+        connection->data(Info::ProjectID).toString();
+
     connection->signPackage(doc);
 
-    #ifdef TUP_DEBUG
-        qWarning() << "[ProjectManager::sendToProjectMembers()] - ProjectID:" << projectID;
-        qWarning() << "[ProjectManager::sendToProjectMembers()] - Sender UID:" << connection->student()->uid() << "Login:" << connection->student()->login();
-        qWarning() << "[ProjectManager::sendToProjectMembers()] - Total connections for project:" << m_connectionList[projectID].size();
-    #endif
- 
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[ProjectManager::sendToProjectMembers()]"
+        << "Broadcasting command:" << commandId;
+    qWarning()
+        << "[ProjectManager::sendToProjectMembers()]"
+        << "ProjectID:" << projectID;
+    qWarning()
+        << "[ProjectManager::sendToProjectMembers()]"
+        << "Sender UID:" << connection->student()->uid()
+        << "Login:" << connection->student()->login();
+    qWarning()
+        << "[ProjectManager::sendToProjectMembers()]"
+        << "Total connections for project:"
+        << m_connectionList[projectID].size();
+#endif
+
     foreach (Connection *link, m_connectionList[projectID]) {
-        #ifdef TUP_DEBUG
-            qWarning() << "[ProjectManager::sendToProjectMembers()] - Checking link UID:" << link->student()->uid() << "Login:" << link->student()->login();
-        #endif
-        if (link->student()->uid() != connection->student()->uid()) {
-            if (link->student()->isEnabled()) {
-                #ifdef TUP_DEBUG
-                    qWarning() << "[ProjectManager::sendToProjectMembers()] - Sending to:" << link->student()->login();
-                #endif
-                link->sendStringToClient(doc.toString(0));
-            } else {
-                #ifdef TUP_DEBUG
-                    qWarning() << "[ProjectManager::sendToProjectMembers()] - Student NOT enabled:" << link->student()->login();
-                #endif
-            }
+        if (!link || !link->student())
+            continue;
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::sendToProjectMembers()]"
+            << "Checking link UID:" << link->student()->uid()
+            << "Login:" << link->student()->login();
+#endif
+
+        if (link->student()->uid()
+                == connection->student()->uid()) {
+            continue;
         }
+
+        if (!link->student()->isEnabled()) {
+#ifdef TUP_DEBUG
+            qWarning()
+                << "[ProjectManager::sendToProjectMembers()]"
+                << "Student NOT enabled:"
+                << link->student()->login();
+#endif
+            continue;
+        }
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::sendToProjectMembers()]"
+            << "Sending command:" << commandId
+            << "to:" << link->student()->login();
+#endif
+
+        link->sendStringToClient(doc.toString(0));
     }
 }
 

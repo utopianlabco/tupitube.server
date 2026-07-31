@@ -85,7 +85,7 @@ signals:
         void createStoryboard(Connection *connection, int sceneIndex);
         void updateStoryboard(Connection *connection, int sceneIndex, const QString &storyXml);
 
-        bool handleProjectRequest(const QString &projectID, const QString strRequest);
+        bool handleProjectRequest(const QString &projectID, const QString &request);
 
         bool saveProject(const QString &projectID, bool quiet);
         void closeProject(const QString &name);

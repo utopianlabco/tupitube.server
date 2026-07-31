@@ -103,10 +103,19 @@ void Connection::run()
            }
        }
 
+       m_client->waitForReadyRead(100);
+
+       /*
        if (m_client->waitForReadyRead(100)) {
-           QByteArray data = m_client->readAll();
-           appendTextReaded(QString::fromUtf8(data));
+           const QByteArray data = m_client->readAll();
+
+           // readAll() may legitimately return an empty QByteArray if another
+           // socket handler consumed the available data or no bytes remain.
+           // Never enqueue an empty value as an XML package.
+           if (!data.isEmpty())
+               appendTextReaded(QString::fromUtf8(data));
        }
+       */
 
        {
            QMutexLocker locker(&m_sendMutex);
@@ -196,10 +205,15 @@ void Connection::close()
 
 void Connection::appendTextReaded(const QString &package)
 {
+    // Ignore empty network reads. An empty string is not a valid XML package
+    // and must never be added to the processing queue.
+    if (package.isEmpty())
+        return;
+
     QMutexLocker locker(&m_readedMutex);
     m_readed.enqueue(package);
 
-    // ✅ Reset the inactivity timer when data is received
+    // Reset the inactivity timer when actual data is received.
     QMetaObject::invokeMethod(this, "resetInactivityTimer", Qt::QueuedConnection);
 }
 
