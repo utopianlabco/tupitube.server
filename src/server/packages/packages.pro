@@ -16,13 +16,15 @@ HEADERS += package.h \
            notice.h \
            notification.h \
            project.h \
-           projectlist.h
+           projectlist.h \
+           commandresult.h
 
 SOURCES += package.cpp \
            notice.cpp \
            notification.cpp \
            project.cpp \
-           projectlist.cpp
+           projectlist.cpp \
+           commandresult.cpp
 
 PRI_FILE = ../../../tupitube_config.pri
 exists ($$PRI_FILE) {

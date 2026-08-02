@@ -62,6 +62,7 @@
 #include "packagebase.h"
 #include "notice.h"
 #include "notification.h"
+#include "commandresult.h"
 #include "tapplicationproperties.h"
 #include "logger.h"
 
@@ -804,23 +805,30 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                 #ifdef TUP_DEBUG
                     qWarning() << "[ProjectManager::handlePackage()] - Processing request for project:" << projectID;
                 #endif
-                if (handleProjectRequest(projectID, package)) {
+                const ProjectCommandResult result =
+                    handleProjectRequest(projectID, package);
+
+                sendCommandResult(connection, result);
+
+                if (result.isCommitted()) {
                     QDomDocument request;
 
                     if (!request.setContent(package)) {
                         qWarning()
                             << "[ProjectManager::handlePackage()]"
-                            << "Unable to rebuild the project request DOM.";
+                            << "Unable to rebuild the committed project request DOM.";
                         return;
                     }
 
                     sendToProjectMembers(connection, request);
                 } else {
-                    #ifdef TUP_DEBUG
-                        qWarning() << "[ProjectManager::handlePackage()] - handleProjectRequest returned false!";
-                    #endif
-                    connection->sendNotification(340, QObject::tr("Cannot handle project request"), 
-                                                 Notification::Warning);
+#ifdef TUP_DEBUG
+                    qWarning()
+                        << "[ProjectManager::handlePackage()]"
+                        << "Command was not committed."
+                        << "Command:" << result.commandId
+                        << "Error:" << result.errorCode;
+#endif
                 }
             } else {
                 #ifdef TUP_DEBUG
@@ -1052,10 +1060,21 @@ void ProjectManager::closeConnection(Connection *connection)
     }
 }
 
-bool ProjectManager::handleProjectRequest(
+ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     const QString &projectID,
     const QString &request)
 {
+    ProjectCommandResult result;
+
+    // Extract the ID first so parse and infrastructure failures can still
+    // produce a correlated command_result package.
+    QDomDocument requestDocument;
+    if (requestDocument.setContent(request)) {
+        result.commandId =
+            requestDocument.documentElement().attribute(
+                QStringLiteral("command_id"));
+    }
+
 #ifdef TUP_DEBUG
     qDebug() << "[ProjectManager::handleProjectRequest()]";
     qWarning()
@@ -1069,36 +1088,55 @@ bool ProjectManager::handleProjectRequest(
     TupRequestParser parser;
 
     if (!parser.parse(request)) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("invalid_request_xml");
+        result.message = QObject::tr("The project request could not be parsed.");
+
 #ifdef TUP_DEBUG
         qWarning()
             << "[ProjectManager::handleProjectRequest()]"
-            << "Failed to parse request.";
+            << result.message;
 #endif
-        return false;
+        return result;
     }
 
     TupProjectResponse *response = parser.getResponse();
 
     if (!response) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("missing_response");
+        result.message = QObject::tr(
+            "The project request did not produce a response object.");
+
         qWarning()
             << "[ProjectManager::handleProjectRequest()]"
-            << "Parser returned no response.";
-        return false;
+            << result.message;
+
+        return result;
     }
 
-    const QString commandId = response->getCommandId();
+    if (result.commandId.isEmpty())
+        result.commandId = response->getCommandId();
 
-    if (commandId.isEmpty()) {
+    if (result.commandId.isEmpty()) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("missing_command_id");
+        result.message = QObject::tr(
+            "The project request does not contain a command ID.");
+
         qWarning()
             << "[ProjectManager::handleProjectRequest()]"
-            << "Project request has no command ID.";
-        return false;
+            << result.message;
+
+        // TupProjectCommand will not take ownership in this branch.
+        delete response;
+        return result;
     }
 
 #ifdef TUP_DEBUG
     qWarning()
         << "[ProjectManager::handleProjectRequest()]"
-        << "Executing command:" << commandId
+        << "Executing command:" << result.commandId
         << "Action:" << response->getAction()
         << "Part:" << response->getPart();
 #endif
@@ -1106,12 +1144,19 @@ bool ProjectManager::handleProjectRequest(
     NetProject *project = m_openedProjects.value(projectID);
 
     if (!project) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("project_not_found");
+        result.message = QObject::tr(
+            "The requested project is not open on the server.");
+
 #ifdef TUP_DEBUG
         qWarning()
             << "[ProjectManager::handleProjectRequest()]"
             << "Project not found:" << projectID;
 #endif
-        return false;
+
+        delete response;
+        return result;
     }
 
     TupCommandExecutor *commandExecutor =
@@ -1123,13 +1168,79 @@ bool ProjectManager::handleProjectRequest(
     delete commandExecutor;
     project->resetTimer();
 
+    if (command.succeeded()) {
+        result.status = ProjectCommandResult::Committed;
+        result.errorCode.clear();
+        result.message.clear();
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Command committed:" << result.commandId;
+#endif
+    } else {
+        result.status = ProjectCommandResult::Rejected;
+        result.errorCode = command.errorCode();
+
+        if (result.errorCode.isEmpty())
+            result.errorCode = QStringLiteral("execution_failed");
+
+        result.message = QObject::tr(
+            "The project command was rejected by the server.");
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Command rejected:" << result.commandId
+            << "Error:" << result.errorCode;
+#endif
+    }
+
+    return result;
+}
+
+void ProjectManager::sendCommandResult(
+    Connection *connection,
+    const ProjectCommandResult &result)
+{
+    if (!connection) {
+        qWarning()
+            << "[ProjectManager::sendCommandResult()]"
+            << "Connection is null.";
+        return;
+    }
+
+    CommandResult::Status packageStatus = CommandResult::Failed;
+
+    switch (result.status) {
+        case ProjectCommandResult::Committed:
+            packageStatus = CommandResult::Committed;
+            break;
+
+        case ProjectCommandResult::Rejected:
+            packageStatus = CommandResult::Rejected;
+            break;
+
+        case ProjectCommandResult::Failed:
+            packageStatus = CommandResult::Failed;
+            break;
+    }
+
+    CommandResult package(
+        result.commandId,
+        packageStatus,
+        result.errorCode,
+        result.message);
+
 #ifdef TUP_DEBUG
     qWarning()
-        << "[ProjectManager::handleProjectRequest()]"
-        << "Command dispatched:" << commandId;
+        << "[ProjectManager::sendCommandResult()]"
+        << "Sending result for command:" << result.commandId
+        << "Status:" << static_cast<int>(result.status)
+        << "Error:" << result.errorCode;
 #endif
 
-    return true;
+    connection->sendStringToClient(package.toString(0));
 }
 
 void ProjectManager::listStudentProjects(Connection *connection)

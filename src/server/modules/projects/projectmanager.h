@@ -60,6 +60,27 @@ public:
 
     enum VideoCase { Normal = 0, Fixed, FpsOne };
 
+private:
+    struct ProjectCommandResult
+    {
+        enum Status
+        {
+            Committed,
+            Rejected,
+            Failed
+        };
+
+        Status status = Failed;
+        QString commandId;
+        QString errorCode;
+        QString message;
+
+        bool isCommitted() const
+        {
+            return status == Committed;
+        }
+    };
+
 public:
     ProjectManager();
     ~ProjectManager();
@@ -85,7 +106,13 @@ signals:
         void createStoryboard(Connection *connection, int sceneIndex);
         void updateStoryboard(Connection *connection, int sceneIndex, const QString &storyXml);
 
-        bool handleProjectRequest(const QString &projectID, const QString &request);
+        ProjectCommandResult handleProjectRequest(
+            const QString &projectID,
+            const QString &request);
+
+        void sendCommandResult(
+            Connection *connection,
+            const ProjectCommandResult &result);
 
         bool saveProject(const QString &projectID, bool quiet);
         void closeProject(const QString &name);

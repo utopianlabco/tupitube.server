@@ -2,6 +2,17 @@
 # TupiTube Server - .gitignore
 # -----------------------------------------------------------------------
 
+*.so
+*.0
+*.1
+*.moc
+*.qm
+*.pri
+*.user
+*qrc_resources.cpp
+*.stash
+.vscode
+
 # Build output: deployed runtime DLLs and the application binary
 bin/
 

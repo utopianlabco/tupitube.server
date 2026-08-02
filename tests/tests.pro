@@ -74,6 +74,7 @@ SOURCES += \
 # Server core & module sources
 # ──────────────────────────────────────────────────────────────────────────────
 HEADERS += \
+    ../src/server/packages/commandresult.h \
     ../src/server/base/observer.h \
     ../src/server/core/connection.h \
     ../src/server/core/server.h \
@@ -108,6 +109,7 @@ SOURCES += \
     ../src/server/modules/students/ban.cpp \
     ../src/server/modules/students/student.cpp \
     ../src/server/modules/students/studentmanager.cpp \
+    ../src/server/packages/commandresult.cpp \
     ../src/server/packages/items.cpp \
     ../src/server/packages/notice.cpp \
     ../src/server/packages/notification.cpp \
