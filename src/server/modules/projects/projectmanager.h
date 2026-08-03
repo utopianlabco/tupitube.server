@@ -40,6 +40,7 @@
 #include "observer.h"
 #include "newprojectparser.h"
 #include "tupexportinterface.h"
+#include "commandresultregistry.h"
 
 #include <QString>
 #include <QDomDocument>
@@ -74,6 +75,7 @@ private:
         QString commandId;
         QString errorCode;
         QString message;
+        bool duplicate = false;
 
         bool isCommitted() const
         {
@@ -130,6 +132,7 @@ signals:
         // void postWork();
 
         QHash<QString, NetProject *> m_openedProjects;
+        QHash<QString, CommandResultRegistry *> m_commandResultRegistries;
         DatabaseHandler *m_dbHandler;
         QHash<QString, QList<Connection *> > m_connectionList;
         NewProjectParser m_connectionData;

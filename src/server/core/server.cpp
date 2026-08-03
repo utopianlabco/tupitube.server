@@ -85,11 +85,91 @@ TcpServer::TcpServer(QObject *parent) : QTcpServer(parent)
 
 TcpServer::~TcpServer()
 {
+#ifdef TUP_DEBUG
+    qWarning() << "[TcpServer::~TcpServer()]";
+#endif
+
+    shutdownConnections();
+
+    qDeleteAll(m_observers);
+    m_observers.clear();
+
+    m_studentManager = nullptr;
+    m_projectManager = nullptr;
+    m_communicationManager = nullptr;
+
     m_db.close();
+
     Logger::self()->info("Server finished");
     Settings::reset();
     Logger::reset();
-    qDeleteAll(m_observers);
+}
+
+void TcpServer::shutdownConnections()
+{
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[TcpServer::shutdownConnections()]"
+        << "Stopping active connections:"
+        << m_connections.count();
+#endif
+
+    // Stop accepting new clients before shutting down existing workers.
+    close();
+
+    const QList<Connection *> connections = m_connections;
+
+    // Prevent connectionClosed() from invoking removeConnection() while this
+    // method is already performing deterministic shutdown.
+    for (Connection *connection : connections) {
+        if (!connection)
+            continue;
+
+        connection->blockSignals(true);
+        connection->close();
+    }
+
+    // Release project, student, and communication state while the observers
+    // still exist and while each Connection object is still valid.
+    for (Connection *connection : connections) {
+        if (!connection)
+            continue;
+
+        for (Observer *observer : m_observers) {
+            if (observer)
+                observer->closeConnection(connection);
+        }
+    }
+
+    for (Connection *connection : connections) {
+        if (!connection)
+            continue;
+
+        if (connection->isRunning() && !connection->wait(5000)) {
+            qCritical()
+                << "[TcpServer::shutdownConnections()]"
+                << "Connection thread did not stop cleanly:"
+                << connection->ip();
+
+            // Emergency fallback only. The normal path exits through the
+            // m_shouldClose flag checked by Connection::run().
+            connection->terminate();
+            connection->wait();
+        }
+
+        delete connection;
+    }
+
+    m_connections.clear();
+    m_managers.clear();
+
+    emit connectionCountChanged(0);
+
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[TcpServer::shutdownConnections()]"
+        << "All connection threads stopped.";
+#endif
 }
 
 void TcpServer::initDataBase()

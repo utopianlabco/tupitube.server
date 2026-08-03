@@ -12,14 +12,16 @@ HEADERS += netproject.h \
            packagehandler.h \
            filemanager.h \
            projectmanager.h \
-           projectrenderer.h
+           projectrenderer.h \
+           commandresultregistry.h
 
 SOURCES += netproject.cpp \
            databasehandler.cpp \
            packagehandler.cpp \
            filemanager.cpp \
            projectmanager.cpp \
-           projectrenderer.cpp
+           projectrenderer.cpp \
+           commandresultregistry.cpp
 
 unix {
     INCLUDEPATH += /usr/local/quazip/include/quazip

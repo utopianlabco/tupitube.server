@@ -81,6 +81,10 @@ ProjectManager::ProjectManager() : Observer()
 
 ProjectManager::~ProjectManager()
 {
+    for (CommandResultRegistry *registry : m_commandResultRegistries)
+        delete registry;
+
+    m_commandResultRegistries.clear();
 }
 
 void ProjectManager::createProject(Connection *connection)
@@ -357,6 +361,9 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     connection->setData(Info::ProjectID, filename);
     connection->setData(Info::ProjectIsOpen, true);
     m_openedProjects.insert(filename, project);
+
+    if (!m_commandResultRegistries.contains(filename))
+        m_commandResultRegistries.insert(filename, new CommandResultRegistry);
 
     QString absolutePath = kAppProp->repositoryDir() + "/projects/" + uid + "/sources/" + filename + "/" + filename + ".tup";
 
@@ -810,7 +817,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
 
                 sendCommandResult(connection, result);
 
-                if (result.isCommitted()) {
+                if (result.isCommitted() && !result.duplicate) {
                     QDomDocument request;
 
                     if (!request.setContent(package)) {
@@ -1005,6 +1012,7 @@ void ProjectManager::closeProject(const QString &projectID)
 
     // saveProject(projectID, true);
     delete m_openedProjects.take(projectID);
+    delete m_commandResultRegistries.take(projectID);
     m_connectionList.remove(projectID);
 
     Logger::self()->info(QObject::tr("Project \"%1\" has been closed").arg(projectID));
@@ -1085,6 +1093,29 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         << "Opened projects:" << m_openedProjects.keys();
 #endif
 
+    CommandResultRegistry *registry =
+        m_commandResultRegistries.value(projectID, nullptr);
+
+    if (registry && !result.commandId.isEmpty()
+            && registry->contains(result.commandId)) {
+        const CommandResultRegistry::StoredResult stored =
+            registry->result(result.commandId);
+
+        result.status =
+            static_cast<ProjectCommandResult::Status>(stored.status);
+        result.errorCode = stored.errorCode;
+        result.message = stored.message;
+        result.duplicate = true;
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Duplicate command detected:" << result.commandId
+            << "Returning stored result without execution.";
+#endif
+        return result;
+    }
+
     TupRequestParser parser;
 
     if (!parser.parse(request)) {
@@ -1097,6 +1128,13 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             << "[ProjectManager::handleProjectRequest()]"
             << result.message;
 #endif
+        if (registry && !result.commandId.isEmpty()) {
+            registry->store(
+                result.commandId,
+                static_cast<CommandResultRegistry::Status>(result.status),
+                result.errorCode,
+                result.message);
+        }
         return result;
     }
 
@@ -1112,6 +1150,13 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             << "[ProjectManager::handleProjectRequest()]"
             << result.message;
 
+        if (registry && !result.commandId.isEmpty()) {
+            registry->store(
+                result.commandId,
+                static_cast<CommandResultRegistry::Status>(result.status),
+                result.errorCode,
+                result.message);
+        }
         return result;
     }
 
@@ -1193,6 +1238,21 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             << "[ProjectManager::handleProjectRequest()]"
             << "Command rejected:" << result.commandId
             << "Error:" << result.errorCode;
+#endif
+    }
+
+    if (registry) {
+        registry->store(
+            result.commandId,
+            static_cast<CommandResultRegistry::Status>(result.status),
+            result.errorCode,
+            result.message);
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Command result stored:" << result.commandId
+            << "Registry size:" << registry->count();
 #endif
     }
 

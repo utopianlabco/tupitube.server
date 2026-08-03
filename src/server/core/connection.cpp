@@ -65,7 +65,33 @@ Connection::Connection(qintptr socketDescriptor, TcpServer *server)
 
 Connection::~Connection()
 {
+#ifdef TUP_DEBUG
+    qDebug() << "[Connection::~Connection()]";
+#endif
+
+    close();
+
+    if (isRunning()) {
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[Connection::~Connection()]"
+            << "Waiting for connection thread to finish:"
+            << m_ip;
+#endif
+
+        if (!wait(5000)) {
+            qCritical()
+                << "[Connection::~Connection()]"
+                << "Connection thread did not stop cleanly:"
+                << m_ip;
+
+            terminate();
+            wait();
+        }
+    }
+
     delete m_student;
+    m_student = nullptr;
 }
 
 void Connection::run()
@@ -74,7 +100,7 @@ void Connection::run()
     qDebug() << "[Connection::run()]";
 #endif
 
-    m_client = new Client(this);
+    m_client = new Client(this, nullptr);
     if (!m_client->setSocketDescriptor(m_socketDescriptor)) {
         #ifdef TUP_DEBUG
            qWarning() << "[Connection::run()] - Error: " << m_client->error();
