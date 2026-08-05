@@ -817,7 +817,14 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
 
                 sendCommandResult(connection, result);
 
-                if (result.isCommitted() && !result.duplicate) {
+                if (result.duplicate) {
+#ifdef TUP_DEBUG
+                    qDebug()
+                        << "[ProjectManager::handlePackage()]"
+                        << "Stored command result returned without rebroadcast."
+                        << "Command:" << result.commandId;
+#endif
+                } else if (result.isCommitted()) {
                     QDomDocument request;
 
                     if (!request.setContent(package)) {
@@ -1077,10 +1084,15 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     // Extract the ID first so parse and infrastructure failures can still
     // produce a correlated command_result package.
     QDomDocument requestDocument;
+    QString dependencyCommandId;
+
     if (requestDocument.setContent(request)) {
-        result.commandId =
-            requestDocument.documentElement().attribute(
-                QStringLiteral("command_id"));
+        const QDomElement requestRoot = requestDocument.documentElement();
+
+        result.commandId = requestRoot.attribute(
+            QStringLiteral("command_id")).trimmed();
+        dependencyCommandId = requestRoot.attribute(
+            QStringLiteral("depends_on")).trimmed();
     }
 
 #ifdef TUP_DEBUG
@@ -1202,6 +1214,60 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 
         delete response;
         return result;
+    }
+
+    if (!dependencyCommandId.isEmpty()) {
+        if (dependencyCommandId == result.commandId) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = QStringLiteral("self_dependency");
+            result.message = QObject::tr(
+                "A project command cannot depend on itself.");
+        } else if (!registry || !registry->contains(dependencyCommandId)) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = QStringLiteral("dependency_not_found");
+            result.message = QObject::tr(
+                "The prerequisite command is unknown to this project session.");
+        } else {
+            const CommandResultRegistry::StoredResult dependencyResult =
+                registry->result(dependencyCommandId);
+
+            if (dependencyResult.status != CommandResultRegistry::Committed) {
+                result.status = ProjectCommandResult::Rejected;
+                result.errorCode = QStringLiteral("dependency_not_committed");
+                result.message = QObject::tr(
+                    "The prerequisite command was not committed.");
+            }
+        }
+
+        if (result.status == ProjectCommandResult::Rejected) {
+#ifdef TUP_DEBUG
+            qWarning()
+                << "[ProjectManager::handleProjectRequest()]"
+                << "Dependency validation rejected command:"
+                << result.commandId
+                << "Prerequisite:" << dependencyCommandId
+                << "Error:" << result.errorCode;
+#endif
+
+            if (registry) {
+                registry->store(
+                    result.commandId,
+                    static_cast<CommandResultRegistry::Status>(result.status),
+                    result.errorCode,
+                    result.message);
+            }
+
+            delete response;
+            return result;
+        }
+
+#ifdef TUP_DEBUG
+        qDebug()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Dependency validated."
+            << "Command:" << result.commandId
+            << "Prerequisite:" << dependencyCommandId;
+#endif
     }
 
     TupCommandExecutor *commandExecutor =
