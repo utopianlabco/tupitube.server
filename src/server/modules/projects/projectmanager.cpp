@@ -1193,7 +1193,7 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 #ifdef TUP_DEBUG
     qWarning()
         << "[ProjectManager::handleProjectRequest()]"
-        << "Executing command:" << result.commandId
+        << "Processing command:" << result.commandId
         << "Action:" << response->getAction()
         << "Part:" << response->getPart();
 #endif
