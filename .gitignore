@@ -44,3 +44,5 @@ src/shell/tupitube.server_resource.rc
 
 # Installer output (generated .exe)
 installer/output/
+
+tests/tests
