@@ -40,6 +40,18 @@
 #include <QDebug>
 #include <QDir>
 
+namespace {
+
+QSqlDatabase resolveDatabaseConnection(const QSqlDatabase &memberDb)
+{
+    if (memberDb.isValid() && memberDb.isOpen())
+        return memberDb;
+
+    return QSqlDatabase::database();
+}
+
+} // namespace
+
 DatabaseHandler::DatabaseHandler()
 {
 }
@@ -99,10 +111,21 @@ void DatabaseHandler::initDataBase()
         exit(1);
     }
 
-    // Enforce foreign key constraints for SQLite and check schema
+    // Enforce foreign key constraints for SQLite. This PRAGMA is connection-local,
+    // so it must be enabled every time the server opens the database.
     if (driver == "QSQLITE") {
         QSqlQuery pragmaQuery(db);
-        pragmaQuery.exec("PRAGMA foreign_keys = ON;");
+        if (!pragmaQuery.exec("PRAGMA foreign_keys = ON")) {
+            qCritical() << "[DatabaseHandler::initDataBase()] - Cannot enable SQLite foreign keys:"
+                        << pragmaQuery.lastError().text();
+            exit(1);
+        }
+
+        if (!pragmaQuery.exec("PRAGMA foreign_keys") || !pragmaQuery.next()
+            || pragmaQuery.value(0).toInt() != 1) {
+            qCritical() << "[DatabaseHandler::initDataBase()] - SQLite foreign key enforcement is disabled";
+            exit(1);
+        }
 
         // Check that the foreign key constraint on tupitube_project.student_id is ON DELETE RESTRICT
         QSqlQuery fkQuery(db);
@@ -208,6 +231,10 @@ void DatabaseHandler::createDatabaseSchema()
         "class_id INTEGER NOT NULL,"
         "period_id INTEGER NOT NULL,"
         "group_project INTEGER DEFAULT 0,"
+        "current_revision INTEGER NOT NULL DEFAULT 0 CHECK (current_revision >= 0),"
+        "snapshot_revision INTEGER NOT NULL DEFAULT 0 CHECK (snapshot_revision >= 0),"
+        "snapshot_checksum TEXT,"
+        "snapshot_updated_at DATETIME,"
         "created_at DATETIME DEFAULT (datetime('now')),"
         "updated_at DATETIME DEFAULT (datetime('now')),"
         "last_rendered_at DATETIME,"
@@ -328,6 +355,55 @@ void DatabaseHandler::createDatabaseSchema()
         "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id)"
         ")";
     query.exec(createGradeTable);
+
+    // Durable command journal used for restart-safe idempotency.
+    QString createProjectCommandTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_project_command ("
+        "project_id INTEGER NOT NULL,"
+        "command_id TEXT NOT NULL,"
+        "student_id INTEGER,"
+        "client_id TEXT,"
+        "command_type VARCHAR(100),"
+        "base_revision INTEGER NOT NULL DEFAULT 0 CHECK (base_revision >= 0),"
+        "depends_on_command_id TEXT,"
+        "request_hash TEXT,"
+        "status VARCHAR(20) NOT NULL CHECK (status IN ('received','queued','processing','committed','rejected','failed')),"
+        "error_code VARCHAR(100),"
+        "message TEXT,"
+        "committed_revision INTEGER CHECK (committed_revision IS NULL OR committed_revision >= 0),"
+        "created_at DATETIME NOT NULL DEFAULT (datetime('now')),"
+        "updated_at DATETIME NOT NULL DEFAULT (datetime('now')),"
+        "completed_at DATETIME,"
+        "PRIMARY KEY (project_id, command_id),"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,"
+        "FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE SET NULL,"
+        "FOREIGN KEY (project_id, depends_on_command_id) REFERENCES tupitube_project_command(project_id, command_id) ON DELETE RESTRICT,"
+        "CHECK ((status = 'committed' AND committed_revision IS NOT NULL) OR (status <> 'committed' AND committed_revision IS NULL))"
+        ")";
+    query.exec(createProjectCommandTable);
+
+    QString createProjectEventTable =
+        "CREATE TABLE IF NOT EXISTS tupitube_project_event ("
+        "event_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "event_uuid TEXT NOT NULL UNIQUE,"
+        "project_id INTEGER NOT NULL,"
+        "command_id TEXT NOT NULL,"
+        "revision INTEGER NOT NULL CHECK (revision > 0),"
+        "event_index INTEGER NOT NULL DEFAULT 0 CHECK (event_index >= 0),"
+        "event_type VARCHAR(100) NOT NULL,"
+        "payload TEXT,"
+        "created_at DATETIME NOT NULL DEFAULT (datetime('now')),"
+        "FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,"
+        "FOREIGN KEY (project_id, command_id) REFERENCES tupitube_project_command(project_id, command_id) ON DELETE RESTRICT,"
+        "UNIQUE (project_id, revision, event_index)"
+        ")";
+    query.exec(createProjectEventTable);
+
+    query.exec("CREATE INDEX IF NOT EXISTS idx_project_command_status ON tupitube_project_command(project_id, status)");
+    query.exec("CREATE INDEX IF NOT EXISTS idx_project_command_dependency ON tupitube_project_command(project_id, depends_on_command_id)");
+    query.exec("CREATE INDEX IF NOT EXISTS idx_project_command_revision ON tupitube_project_command(project_id, committed_revision)");
+    query.exec("CREATE INDEX IF NOT EXISTS idx_project_event_revision ON tupitube_project_event(project_id, revision, event_index)");
+    query.exec("CREATE INDEX IF NOT EXISTS idx_project_event_command ON tupitube_project_event(project_id, command_id)");
 }
 
 DatabaseHandler::~DatabaseHandler()
@@ -1721,6 +1797,260 @@ DatabaseHandler::GradeInfo DatabaseHandler::getGrade(int projectId, int studentI
     info.comments = query.value(2).toString();
     info.updatedAt = query.value(3).toString();
     return info;
+}
+
+DatabaseHandler::ProjectRevisionInfo DatabaseHandler::getProjectRevisionInfo(int projectId) const
+{
+    ProjectRevisionInfo info;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    QSqlQuery query(connection);
+    query.prepare("SELECT current_revision, snapshot_revision, snapshot_checksum, snapshot_updated_at "
+                  "FROM tupitube_project WHERE project_id = ?");
+    query.addBindValue(projectId);
+
+    if (!query.exec()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::getProjectRevisionInfo()] - Error:"
+                       << query.lastError().text();
+        #endif
+        return info;
+    }
+
+    if (!query.next())
+        return info;
+
+    info.found = true;
+    info.currentRevision = query.value(0).toLongLong();
+    info.snapshotRevision = query.value(1).toLongLong();
+    info.snapshotChecksum = query.value(2).toString();
+    info.snapshotUpdatedAt = query.value(3).toString();
+    return info;
+}
+
+DatabaseHandler::ProjectCommandRecord DatabaseHandler::getProjectCommand(
+    int projectId, const QString &commandId) const
+{
+    ProjectCommandRecord record;
+
+    if (projectId <= 0 || commandId.isEmpty())
+        return record;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    QSqlQuery query(connection);
+    query.prepare("SELECT project_id, command_id, student_id, client_id, command_type, "
+                  "base_revision, depends_on_command_id, request_hash, status, error_code, "
+                  "message, committed_revision, created_at, updated_at, completed_at "
+                  "FROM tupitube_project_command WHERE project_id = ? AND command_id = ?");
+    query.addBindValue(projectId);
+    query.addBindValue(commandId);
+
+    if (!query.exec()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::getProjectCommand()] - Error:" << query.lastError().text();
+        #endif
+        return record;
+    }
+
+    if (!query.next())
+        return record;
+
+    record.found = true;
+    record.projectId = query.value(0).toInt();
+    record.commandId = query.value(1).toString();
+    record.studentId = query.value(2).isNull() ? -1 : query.value(2).toInt();
+    record.clientId = query.value(3).toString();
+    record.commandType = query.value(4).toString();
+    record.baseRevision = query.value(5).toLongLong();
+    record.dependsOnCommandId = query.value(6).toString();
+    record.requestHash = query.value(7).toString();
+    record.status = query.value(8).toString();
+    record.errorCode = query.value(9).toString();
+    record.message = query.value(10).toString();
+    record.committedRevision = query.value(11).isNull() ? -1 : query.value(11).toLongLong();
+    record.createdAt = query.value(12).toString();
+    record.updatedAt = query.value(13).toString();
+    record.completedAt = query.value(14).toString();
+    return record;
+}
+
+bool DatabaseHandler::insertProjectCommand(int projectId, const QString &commandId,
+                                           int studentId, const QString &clientId,
+                                           const QString &commandType, qint64 baseRevision,
+                                           const QString &dependsOnCommandId,
+                                           const QString &requestHash, const QString &status)
+{
+    if (projectId <= 0 || commandId.isEmpty() || baseRevision < 0)
+        return false;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    QSqlQuery query(connection);
+    query.prepare("INSERT INTO tupitube_project_command "
+                  "(project_id, command_id, student_id, client_id, command_type, base_revision, "
+                  " depends_on_command_id, request_hash, status, created_at, updated_at) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))");
+    query.addBindValue(projectId);
+    query.addBindValue(commandId);
+    query.addBindValue(studentId > 0 ? QVariant(studentId) : QVariant(QVariant::Int));
+    query.addBindValue(clientId.isEmpty() ? QVariant(QVariant::String) : QVariant(clientId));
+    query.addBindValue(commandType.isEmpty() ? QVariant(QVariant::String) : QVariant(commandType));
+    query.addBindValue(baseRevision);
+    query.addBindValue(dependsOnCommandId.isEmpty() ? QVariant(QVariant::String) : QVariant(dependsOnCommandId));
+    query.addBindValue(requestHash.isEmpty() ? QVariant(QVariant::String) : QVariant(requestHash));
+    query.addBindValue(status);
+
+    if (!query.exec()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::insertProjectCommand()] - Error:" << query.lastError().text();
+        #endif
+        return false;
+    }
+    return true;
+}
+
+bool DatabaseHandler::updateProjectCommandResult(int projectId, const QString &commandId,
+                                                 const QString &status, const QString &errorCode,
+                                                 const QString &message)
+{
+    if (projectId <= 0 || commandId.isEmpty() || status == QStringLiteral("committed"))
+        return false;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    QSqlQuery query(connection);
+    query.prepare("UPDATE tupitube_project_command "
+                  "SET status = ?, error_code = ?, message = ?, committed_revision = NULL, "
+                  "updated_at = datetime('now'), completed_at = datetime('now') "
+                  "WHERE project_id = ? AND command_id = ?");
+    query.addBindValue(status);
+    query.addBindValue(errorCode.isEmpty() ? QVariant(QVariant::String) : QVariant(errorCode));
+    query.addBindValue(message.isEmpty() ? QVariant(QVariant::String) : QVariant(message));
+    query.addBindValue(projectId);
+    query.addBindValue(commandId);
+
+    if (!query.exec()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::updateProjectCommandResult()] - Error:" << query.lastError().text();
+        #endif
+        return false;
+    }
+    return query.numRowsAffected() == 1;
+}
+
+bool DatabaseHandler::finalizeCommittedProjectCommand(int projectId, const QString &commandId,
+                                                      qint64 *committedRevision,
+                                                      const QString &eventUuid,
+                                                      const QString &eventType,
+                                                      const QString &eventPayload,
+                                                      const QString &snapshotChecksum)
+{
+    if (projectId <= 0 || commandId.isEmpty() || !committedRevision
+        || eventUuid.isEmpty() || eventType.isEmpty())
+        return false;
+
+    *committedRevision = -1;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+
+    if (!connection.transaction()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Cannot start transaction:"
+                       << connection.lastError().text();
+        #endif
+        return false;
+    }
+
+    QSqlQuery revisionQuery(connection);
+    revisionQuery.prepare("SELECT current_revision FROM tupitube_project WHERE project_id = ?");
+    revisionQuery.addBindValue(projectId);
+    if (!revisionQuery.exec() || !revisionQuery.next()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Project revision lookup failed:"
+                       << revisionQuery.lastError().text();
+        #endif
+        revisionQuery.finish();
+        connection.rollback();
+        return false;
+    }
+
+    const qint64 currentRevision = revisionQuery.value(0).toLongLong();
+    const qint64 nextRevision = currentRevision + 1;
+    revisionQuery.finish();
+
+    QSqlQuery projectQuery(connection);
+    projectQuery.prepare("UPDATE tupitube_project SET current_revision = ?, snapshot_revision = ?, "
+                         "snapshot_checksum = ?, snapshot_updated_at = datetime('now'), "
+                         "updated_at = datetime('now') WHERE project_id = ? AND current_revision = ?");
+    projectQuery.addBindValue(nextRevision);
+    projectQuery.addBindValue(nextRevision);
+    projectQuery.addBindValue(snapshotChecksum.isEmpty() ? QVariant(QVariant::String) : QVariant(snapshotChecksum));
+    projectQuery.addBindValue(projectId);
+    projectQuery.addBindValue(currentRevision);
+
+    if (!projectQuery.exec() || projectQuery.numRowsAffected() != 1) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Project revision update failed:"
+                       << projectQuery.lastError().text();
+        #endif
+        projectQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    projectQuery.finish();
+
+    QSqlQuery commandQuery(connection);
+    commandQuery.prepare("UPDATE tupitube_project_command "
+                         "SET status = 'committed', error_code = NULL, message = NULL, "
+                         "committed_revision = ?, updated_at = datetime('now'), completed_at = datetime('now') "
+                         "WHERE project_id = ? AND command_id = ? AND status <> 'committed'");
+    commandQuery.addBindValue(nextRevision);
+    commandQuery.addBindValue(projectId);
+    commandQuery.addBindValue(commandId);
+
+    if (!commandQuery.exec() || commandQuery.numRowsAffected() != 1) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Command update failed:"
+                       << commandQuery.lastError().text();
+        #endif
+        commandQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    commandQuery.finish();
+
+    QSqlQuery eventQuery(connection);
+    eventQuery.prepare("INSERT INTO tupitube_project_event "
+                       "(event_uuid, project_id, command_id, revision, event_index, event_type, payload, created_at) "
+                       "VALUES (?, ?, ?, ?, 0, ?, ?, datetime('now'))");
+    eventQuery.addBindValue(eventUuid);
+    eventQuery.addBindValue(projectId);
+    eventQuery.addBindValue(commandId);
+    eventQuery.addBindValue(nextRevision);
+    eventQuery.addBindValue(eventType);
+    eventQuery.addBindValue(eventPayload.isEmpty()
+        ? QVariant(QVariant::String) : QVariant(eventPayload));
+
+    if (!eventQuery.exec() || eventQuery.numRowsAffected() != 1) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Event insert failed:"
+                       << eventQuery.lastError().text();
+        #endif
+        eventQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    eventQuery.finish();
+
+    if (!connection.commit()) {
+        #ifdef TUP_DEBUG
+            qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Commit failed:"
+                       << connection.lastError().text();
+        #endif
+        connection.rollback();
+        return false;
+    }
+
+    *committedRevision = nextRevision;
+    return true;
 }
 
 int DatabaseHandler::getProjectIdFromFilename(const QString &filename)

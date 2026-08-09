@@ -70,6 +70,8 @@
 #include <QHash>
 #include <QColor>
 #include <QDebug>
+#include <QCryptographicHash>
+#include <QUuid>
 
 // QString ProjectManager::BROWSER_FINGERPRINT = QString("TupiTube_Media 1.0");
 
@@ -813,7 +815,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                     qWarning() << "[ProjectManager::handlePackage()] - Processing request for project:" << projectID;
                 #endif
                 const ProjectCommandResult result =
-                    handleProjectRequest(projectID, package);
+                    handleProjectRequest(projectID, package, connection->student()->uid());
 
                 sendCommandResult(connection, result);
 
@@ -825,16 +827,16 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                         << "Command:" << result.commandId;
 #endif
                 } else if (result.isCommitted()) {
-                    QDomDocument request;
+#ifdef TUP_DEBUG
+                    qDebug()
+                        << "[ProjectManager::handlePackage()]"
+                        << "Authoritative event persisted."
+                        << "Event:" << result.eventId
+                        << "Type:" << result.eventType
+                        << "Revision:" << result.committedRevision;
+#endif
 
-                    if (!request.setContent(package)) {
-                        qWarning()
-                            << "[ProjectManager::handlePackage()]"
-                            << "Unable to rebuild the committed project request DOM.";
-                        return;
-                    }
-
-                    sendToProjectMembers(connection, request);
+                    sendProjectEventToProjectMembers(connection, result);
                 } else {
 #ifdef TUP_DEBUG
                     qWarning()
@@ -1077,14 +1079,16 @@ void ProjectManager::closeConnection(Connection *connection)
 
 ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     const QString &projectID,
-    const QString &request)
+    const QString &request,
+    int studentId)
 {
     ProjectCommandResult result;
 
-    // Extract the ID first so parse and infrastructure failures can still
-    // produce a correlated command_result package.
     QDomDocument requestDocument;
     QString dependencyCommandId;
+    QString clientId;
+    QString commandType;
+    qint64 baseRevision = 0;
 
     if (requestDocument.setContent(request)) {
         const QDomElement requestRoot = requestDocument.documentElement();
@@ -1093,6 +1097,16 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             QStringLiteral("command_id")).trimmed();
         dependencyCommandId = requestRoot.attribute(
             QStringLiteral("depends_on")).trimmed();
+        clientId = requestRoot.attribute(
+            QStringLiteral("client_id")).trimmed();
+        commandType = requestRoot.attribute(
+            QStringLiteral("command_type")).trimmed();
+
+        bool baseRevisionOk = false;
+        const qint64 parsedBaseRevision = requestRoot.attribute(
+            QStringLiteral("base_revision")).toLongLong(&baseRevisionOk);
+        if (baseRevisionOk && parsedBaseRevision >= 0)
+            baseRevision = parsedBaseRevision;
     }
 
 #ifdef TUP_DEBUG
@@ -1108,24 +1122,77 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     CommandResultRegistry *registry =
         m_commandResultRegistries.value(projectID, nullptr);
 
-    if (registry && !result.commandId.isEmpty()
-            && registry->contains(result.commandId)) {
-        const CommandResultRegistry::StoredResult stored =
-            registry->result(result.commandId);
+    const int dbProjectId = m_dbHandler->getProjectIdFromFilename(projectID);
 
-        result.status =
-            static_cast<ProjectCommandResult::Status>(stored.status);
-        result.errorCode = stored.errorCode;
-        result.message = stored.message;
-        result.duplicate = true;
+    if (!result.commandId.isEmpty()) {
+        if (registry && registry->contains(result.commandId)) {
+            const CommandResultRegistry::StoredResult stored =
+                registry->result(result.commandId);
+
+            result.status =
+                static_cast<ProjectCommandResult::Status>(stored.status);
+            result.errorCode = stored.errorCode;
+            result.message = stored.message;
+            result.duplicate = true;
 
 #ifdef TUP_DEBUG
-        qWarning()
-            << "[ProjectManager::handleProjectRequest()]"
-            << "Duplicate command detected:" << result.commandId
-            << "Returning stored result without execution.";
+            qWarning()
+                << "[ProjectManager::handleProjectRequest()]"
+                << "Duplicate command found in memory:" << result.commandId;
 #endif
-        return result;
+            return result;
+        }
+
+        if (dbProjectId > 0) {
+            const DatabaseHandler::ProjectCommandRecord stored =
+                m_dbHandler->getProjectCommand(dbProjectId, result.commandId);
+
+            if (stored.found) {
+                if (stored.status == QStringLiteral("committed")) {
+                    result.status = ProjectCommandResult::Committed;
+                    result.errorCode = stored.errorCode;
+                    result.message = stored.message;
+                    result.committedRevision = stored.committedRevision;
+                    result.duplicate = true;
+                } else if (stored.status == QStringLiteral("rejected")) {
+                    result.status = ProjectCommandResult::Rejected;
+                    result.errorCode = stored.errorCode;
+                    result.message = stored.message;
+                    result.duplicate = true;
+                } else if (stored.status == QStringLiteral("failed")) {
+                    result.status = ProjectCommandResult::Failed;
+                    result.errorCode = stored.errorCode;
+                    result.message = stored.message;
+                    result.duplicate = true;
+                } else {
+                    // A crash may have happened after the command changed the
+                    // snapshot but before SQLite reached a terminal state.
+                    // Re-executing here could apply a non-idempotent mutation twice.
+                    result.status = ProjectCommandResult::Failed;
+                    result.errorCode = QStringLiteral("command_recovery_required");
+                    result.message = QObject::tr(
+                        "The command has an unfinished server record and cannot be safely replayed.");
+                    result.duplicate = true;
+                }
+
+                if (registry) {
+                    registry->store(
+                        result.commandId,
+                        static_cast<CommandResultRegistry::Status>(result.status),
+                        result.errorCode,
+                        result.message);
+                }
+
+#ifdef TUP_DEBUG
+                qWarning()
+                    << "[ProjectManager::handleProjectRequest()]"
+                    << "Command found in durable registry:" << result.commandId
+                    << "Status:" << stored.status
+                    << "Revision:" << stored.committedRevision;
+#endif
+                return result;
+            }
+        }
     }
 
     TupRequestParser parser;
@@ -1185,18 +1252,9 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             << "[ProjectManager::handleProjectRequest()]"
             << result.message;
 
-        // TupProjectCommand will not take ownership in this branch.
         delete response;
         return result;
     }
-
-#ifdef TUP_DEBUG
-    qWarning()
-        << "[ProjectManager::handleProjectRequest()]"
-        << "Processing command:" << result.commandId
-        << "Action:" << response->getAction()
-        << "Part:" << response->getPart();
-#endif
 
     NetProject *project = m_openedProjects.value(projectID);
 
@@ -1206,15 +1264,28 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         result.message = QObject::tr(
             "The requested project is not open on the server.");
 
-#ifdef TUP_DEBUG
-        qWarning()
-            << "[ProjectManager::handleProjectRequest()]"
-            << "Project not found:" << projectID;
-#endif
+        delete response;
+        return result;
+    }
+
+    if (dbProjectId <= 0) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("project_database_record_not_found");
+        result.message = QObject::tr(
+            "The project database record could not be resolved.");
 
         delete response;
         return result;
     }
+
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[ProjectManager::handleProjectRequest()]"
+        << "Processing command:" << result.commandId
+        << "DB project:" << dbProjectId
+        << "Action:" << response->getAction()
+        << "Part:" << response->getPart();
+#endif
 
     if (!dependencyCommandId.isEmpty()) {
         if (dependencyCommandId == result.commandId) {
@@ -1222,16 +1293,49 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             result.errorCode = QStringLiteral("self_dependency");
             result.message = QObject::tr(
                 "A project command cannot depend on itself.");
-        } else if (!registry || !registry->contains(dependencyCommandId)) {
-            result.status = ProjectCommandResult::Rejected;
-            result.errorCode = QStringLiteral("dependency_not_found");
-            result.message = QObject::tr(
-                "The prerequisite command is unknown to this project session.");
         } else {
-            const CommandResultRegistry::StoredResult dependencyResult =
-                registry->result(dependencyCommandId);
+            bool dependencyFound = false;
+            bool dependencyCommitted = false;
 
-            if (dependencyResult.status != CommandResultRegistry::Committed) {
+            if (registry && registry->contains(dependencyCommandId)) {
+                const CommandResultRegistry::StoredResult dependencyResult =
+                    registry->result(dependencyCommandId);
+                dependencyFound = true;
+                dependencyCommitted =
+                    dependencyResult.status == CommandResultRegistry::Committed;
+            } else {
+                const DatabaseHandler::ProjectCommandRecord dependencyRecord =
+                    m_dbHandler->getProjectCommand(dbProjectId, dependencyCommandId);
+                if (dependencyRecord.found) {
+                    dependencyFound = true;
+                    dependencyCommitted =
+                        dependencyRecord.status == QStringLiteral("committed");
+
+                    if (registry && (dependencyRecord.status == QStringLiteral("committed")
+                                     || dependencyRecord.status == QStringLiteral("rejected")
+                                     || dependencyRecord.status == QStringLiteral("failed"))) {
+                        CommandResultRegistry::Status cachedStatus =
+                            CommandResultRegistry::Failed;
+                        if (dependencyRecord.status == QStringLiteral("committed"))
+                            cachedStatus = CommandResultRegistry::Committed;
+                        else if (dependencyRecord.status == QStringLiteral("rejected"))
+                            cachedStatus = CommandResultRegistry::Rejected;
+
+                        registry->store(
+                            dependencyCommandId,
+                            cachedStatus,
+                            dependencyRecord.errorCode,
+                            dependencyRecord.message);
+                    }
+                }
+            }
+
+            if (!dependencyFound) {
+                result.status = ProjectCommandResult::Rejected;
+                result.errorCode = QStringLiteral("dependency_not_found");
+                result.message = QObject::tr(
+                    "The prerequisite command is unknown to this project.");
+            } else if (!dependencyCommitted) {
                 result.status = ProjectCommandResult::Rejected;
                 result.errorCode = QStringLiteral("dependency_not_committed");
                 result.message = QObject::tr(
@@ -1240,19 +1344,33 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         }
 
         if (result.status == ProjectCommandResult::Rejected) {
-#ifdef TUP_DEBUG
-            qWarning()
-                << "[ProjectManager::handleProjectRequest()]"
-                << "Dependency validation rejected command:"
-                << result.commandId
-                << "Prerequisite:" << dependencyCommandId
-                << "Error:" << result.errorCode;
-#endif
+            // Rejected dependency checks are terminal but the command was never
+            // executed, so persist their result for retry/idempotency handling.
+            const QByteArray requestHash = QCryptographicHash::hash(
+                request.toUtf8(), QCryptographicHash::Sha256).toHex();
+
+            if (m_dbHandler->insertProjectCommand(
+                    dbProjectId,
+                    result.commandId,
+                    studentId,
+                    clientId,
+                    commandType,
+                    baseRevision,
+                    dependencyCommandId,
+                    QString::fromLatin1(requestHash),
+                    QStringLiteral("processing"))) {
+                m_dbHandler->updateProjectCommandResult(
+                    dbProjectId,
+                    result.commandId,
+                    QStringLiteral("rejected"),
+                    result.errorCode,
+                    result.message);
+            }
 
             if (registry) {
                 registry->store(
                     result.commandId,
-                    static_cast<CommandResultRegistry::Status>(result.status),
+                    CommandResultRegistry::Rejected,
                     result.errorCode,
                     result.message);
             }
@@ -1260,14 +1378,46 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             delete response;
             return result;
         }
+    }
 
-#ifdef TUP_DEBUG
-        qDebug()
-            << "[ProjectManager::handleProjectRequest()]"
-            << "Dependency validated."
-            << "Command:" << result.commandId
-            << "Prerequisite:" << dependencyCommandId;
-#endif
+    const QByteArray requestHash = QCryptographicHash::hash(
+        request.toUtf8(), QCryptographicHash::Sha256).toHex();
+
+    if (!m_dbHandler->insertProjectCommand(
+            dbProjectId,
+            result.commandId,
+            studentId,
+            clientId,
+            commandType,
+            baseRevision,
+            dependencyCommandId,
+            QString::fromLatin1(requestHash),
+            QStringLiteral("processing"))) {
+        // A concurrent/retried request may have inserted the same command
+        // between our first lookup and this insert. Re-read before failing.
+        const DatabaseHandler::ProjectCommandRecord stored =
+            m_dbHandler->getProjectCommand(dbProjectId, result.commandId);
+
+        if (stored.found) {
+            if (stored.status == QStringLiteral("committed"))
+                result.status = ProjectCommandResult::Committed;
+            else if (stored.status == QStringLiteral("rejected"))
+                result.status = ProjectCommandResult::Rejected;
+            else
+                result.status = ProjectCommandResult::Failed;
+
+            result.errorCode = stored.errorCode;
+            result.message = stored.message;
+            result.duplicate = true;
+        } else {
+            result.status = ProjectCommandResult::Failed;
+            result.errorCode = QStringLiteral("command_registry_write_failed");
+            result.message = QObject::tr(
+                "The command could not be registered in persistent storage.");
+        }
+
+        delete response;
+        return result;
     }
 
     TupCommandExecutor *commandExecutor =
@@ -1279,17 +1429,7 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     delete commandExecutor;
     project->resetTimer();
 
-    if (command.succeeded()) {
-        result.status = ProjectCommandResult::Committed;
-        result.errorCode.clear();
-        result.message.clear();
-
-#ifdef TUP_DEBUG
-        qWarning()
-            << "[ProjectManager::handleProjectRequest()]"
-            << "Command committed:" << result.commandId;
-#endif
-    } else {
+    if (!command.succeeded()) {
         result.status = ProjectCommandResult::Rejected;
         result.errorCode = command.errorCode();
 
@@ -1299,28 +1439,125 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         result.message = QObject::tr(
             "The project command was rejected by the server.");
 
-#ifdef TUP_DEBUG
-        qWarning()
-            << "[ProjectManager::handleProjectRequest()]"
-            << "Command rejected:" << result.commandId
-            << "Error:" << result.errorCode;
-#endif
+        if (!m_dbHandler->updateProjectCommandResult(
+                dbProjectId,
+                result.commandId,
+                QStringLiteral("rejected"),
+                result.errorCode,
+                result.message)) {
+            qWarning()
+                << "[ProjectManager::handleProjectRequest()]"
+                << "Unable to persist rejected command result:"
+                << result.commandId;
+        }
+
+        if (registry) {
+            registry->store(
+                result.commandId,
+                CommandResultRegistry::Rejected,
+                result.errorCode,
+                result.message);
+        }
+
+        return result;
     }
+
+    result.eventType = command.eventType();
+    result.eventPayload = request;
+    result.eventId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    if (result.eventType.isEmpty())
+        result.eventType = QStringLiteral("project.command-committed");
+
+    // Domain execution succeeded, but the command is not committed yet.
+    // The updated .tup snapshot must exist before the server acknowledges it.
+    if (!saveProject(projectID, true)) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("persistence_failed");
+        result.message = QObject::tr(
+            "The project command executed but the project snapshot could not be persisted.");
+
+        m_dbHandler->updateProjectCommandResult(
+            dbProjectId,
+            result.commandId,
+            QStringLiteral("failed"),
+            result.errorCode,
+            result.message);
+
+        if (registry) {
+            registry->store(
+                result.commandId,
+                CommandResultRegistry::Failed,
+                result.errorCode,
+                result.message);
+        }
+
+        qCritical()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Snapshot persistence failed after domain mutation."
+            << "Command:" << result.commandId;
+        return result;
+    }
+
+    qint64 committedRevision = -1;
+    if (!m_dbHandler->finalizeCommittedProjectCommand(
+            dbProjectId,
+            result.commandId,
+            &committedRevision,
+            result.eventId,
+            result.eventType,
+            result.eventPayload)) {
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("commit_metadata_failed");
+        result.message = QObject::tr(
+            "The project snapshot was saved, but the command/event metadata could not be committed.");
+
+        // Best effort: convert the unfinished durable record to a terminal
+        // failure so a retry is not silently executed again.
+        m_dbHandler->updateProjectCommandResult(
+            dbProjectId,
+            result.commandId,
+            QStringLiteral("failed"),
+            result.errorCode,
+            result.message);
+
+        if (registry) {
+            registry->store(
+                result.commandId,
+                CommandResultRegistry::Failed,
+                result.errorCode,
+                result.message);
+        }
+
+        qCritical()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Snapshot saved but SQLite commit metadata failed."
+            << "Command:" << result.commandId;
+        return result;
+    }
+
+    result.status = ProjectCommandResult::Committed;
+    result.errorCode.clear();
+    result.message.clear();
+    result.committedRevision = committedRevision;
 
     if (registry) {
         registry->store(
             result.commandId,
-            static_cast<CommandResultRegistry::Status>(result.status),
+            CommandResultRegistry::Committed,
             result.errorCode,
             result.message);
+    }
 
 #ifdef TUP_DEBUG
-        qWarning()
-            << "[ProjectManager::handleProjectRequest()]"
-            << "Command result stored:" << result.commandId
-            << "Registry size:" << registry->count();
+    qWarning()
+        << "[ProjectManager::handleProjectRequest()]"
+        << "Command durably committed:" << result.commandId
+        << "Revision:" << committedRevision
+        << "Event:" << result.eventId
+        << "Type:" << result.eventType
+        << "Registry size:" << (registry ? registry->count() : 0);
 #endif
-    }
 
     return result;
 }
@@ -1382,6 +1619,91 @@ void ProjectManager::listStudentProjects(Connection *connection)
              list.addProject(ProjectList::Contribution, info.file, info.title, info.owner, info.description, info.date);
 
     connection->sendStringToClient(list.toString());
+}
+
+void ProjectManager::sendProjectEventToProjectMembers(
+    Connection *connection,
+    const ProjectCommandResult &result)
+{
+    if (!connection) {
+        qWarning()
+            << "[ProjectManager::sendProjectEventToProjectMembers()]"
+            << "Connection is null.";
+        return;
+    }
+
+    if (!result.isCommitted()
+            || result.eventId.isEmpty()
+            || result.eventType.isEmpty()
+            || result.committedRevision <= 0
+            || result.eventPayload.isEmpty()) {
+        qWarning()
+            << "[ProjectManager::sendProjectEventToProjectMembers()]"
+            << "Cannot broadcast an incomplete project event."
+            << "Command:" << result.commandId
+            << "Event:" << result.eventId
+            << "Revision:" << result.committedRevision;
+        return;
+    }
+
+    const QString projectID =
+        connection->data(Info::ProjectID).toString();
+
+    if (projectID.isEmpty()) {
+        qWarning()
+            << "[ProjectManager::sendProjectEventToProjectMembers()]"
+            << "Project ID is undefined.";
+        return;
+    }
+
+    QDomDocument document;
+    QDomElement root = document.createElement(QStringLiteral("project_event"));
+    root.setAttribute(QStringLiteral("version"), QStringLiteral("1"));
+    root.setAttribute(QStringLiteral("event_id"), result.eventId);
+    root.setAttribute(QStringLiteral("caused_by"), result.commandId);
+    root.setAttribute(QStringLiteral("project_id"), projectID);
+    root.setAttribute(QStringLiteral("revision"), result.committedRevision);
+    root.setAttribute(QStringLiteral("event_index"), 0);
+    root.setAttribute(QStringLiteral("event_type"), result.eventType);
+    document.appendChild(root);
+
+    QDomElement payload = document.createElement(QStringLiteral("payload"));
+    payload.appendChild(document.createCDATASection(result.eventPayload));
+    root.appendChild(payload);
+
+#ifdef TUP_DEBUG
+    qWarning()
+        << "[ProjectManager::sendProjectEventToProjectMembers()]"
+        << "Broadcasting authoritative event:"
+        << result.eventId
+        << "Command:" << result.commandId
+        << "Type:" << result.eventType
+        << "Revision:" << result.committedRevision
+        << "Project:" << projectID;
+#endif
+
+    foreach (Connection *link, m_connectionList[projectID]) {
+        if (!link || !link->student())
+            continue;
+
+        // The sender has already applied the command optimistically. Its
+        // authoritative confirmation is command_result, so do not execute
+        // the same mutation a second time on that client.
+        if (link->student()->uid() == connection->student()->uid())
+            continue;
+
+        if (!link->student()->isEnabled())
+            continue;
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::sendProjectEventToProjectMembers()]"
+            << "Sending event:" << result.eventId
+            << "to:" << link->student()->login();
+#endif
+
+        link->sendStringToClient(document.toString(0));
+    }
 }
 
 void ProjectManager::sendToProjectMembers(

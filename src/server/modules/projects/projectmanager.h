@@ -75,6 +75,10 @@ private:
         QString commandId;
         QString errorCode;
         QString message;
+        qint64 committedRevision = -1;
+        QString eventId;
+        QString eventType;
+        QString eventPayload;
         bool duplicate = false;
 
         bool isCommitted() const
@@ -110,7 +114,8 @@ signals:
 
         ProjectCommandResult handleProjectRequest(
             const QString &projectID,
-            const QString &request);
+            const QString &request,
+            int studentId);
 
         void sendCommandResult(
             Connection *connection,
@@ -121,6 +126,9 @@ signals:
 
         void closeConnection(Connection *connection);
         void sendToProjectMembers(Connection *connection, QDomDocument &doc);
+        void sendProjectEventToProjectMembers(
+            Connection *connection,
+            const ProjectCommandResult &result);
 
         void registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project);
         void listStudentProjects(Connection *connection);

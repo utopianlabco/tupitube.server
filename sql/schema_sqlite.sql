@@ -1,7 +1,8 @@
 -- TupiTube Server Definitive SQLite Schema
 -- Database: tupitube.db
 -- For classroom sessions with up to 30 students
--- Merged and updated: April 12, 2026
+-- Merged and updated: August 7, 2026
+-- Collaboration architecture: durable commands, revisions, and project events
 
 PRAGMA foreign_keys=on;
 
@@ -51,6 +52,15 @@ CREATE TABLE IF NOT EXISTS tupitube_project (
     class_id INTEGER NOT NULL,
     period_id INTEGER NOT NULL,
     group_project INTEGER DEFAULT 0, -- 0: individual, 1: group
+
+    -- Server-authoritative collaboration state.
+    -- current_revision advances after each durably committed project command.
+    -- snapshot_revision identifies the revision represented by the current .tup snapshot.
+    current_revision INTEGER NOT NULL DEFAULT 0 CHECK (current_revision >= 0),
+    snapshot_revision INTEGER NOT NULL DEFAULT 0 CHECK (snapshot_revision >= 0),
+    snapshot_checksum TEXT, -- Optional checksum of the durable .tup snapshot
+    snapshot_updated_at DATETIME,
+
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
     last_rendered_at DATETIME, -- Timestamp of last successful render
@@ -154,6 +164,73 @@ CREATE TABLE IF NOT EXISTS tupitube_grade (
     UNIQUE (project_id, student_id, teacher_student_id, period_id, class_id)
 );
 
+
+-- Durable project command journal.
+-- This table is the persistent source for command idempotency and command results.
+-- The in-memory CommandResultRegistry may cache rows from this table, but must not
+-- be treated as authoritative across project close/reopen or server restart.
+CREATE TABLE IF NOT EXISTS tupitube_project_command (
+    project_id INTEGER NOT NULL,
+    command_id TEXT NOT NULL,
+
+    -- Origin and concurrency metadata.
+    student_id INTEGER,
+    client_id TEXT,
+    command_type VARCHAR(100),
+    base_revision INTEGER NOT NULL DEFAULT 0 CHECK (base_revision >= 0),
+    depends_on_command_id TEXT,
+
+    -- Hash of the canonical command request. This allows the server to detect
+    -- accidental reuse of a command_id with different content without storing
+    -- large request bodies (for example, base64 encoded imported images).
+    request_hash TEXT,
+
+    -- Lifecycle/result state. Terminal states are committed, rejected, and failed.
+    status VARCHAR(20) NOT NULL
+        CHECK (status IN ('received', 'queued', 'processing', 'committed', 'rejected', 'failed')),
+    error_code VARCHAR(100),
+    message TEXT,
+
+    -- Set only when the command has durably changed authoritative project state.
+    committed_revision INTEGER CHECK (committed_revision IS NULL OR committed_revision >= 0),
+
+    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    completed_at DATETIME,
+
+    PRIMARY KEY (project_id, command_id),
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (student_id) REFERENCES tupitube_student(student_id) ON DELETE SET NULL,
+    FOREIGN KEY (project_id, depends_on_command_id)
+        REFERENCES tupitube_project_command(project_id, command_id) ON DELETE RESTRICT,
+
+    CHECK (
+        (status = 'committed' AND committed_revision IS NOT NULL)
+        OR
+        (status <> 'committed' AND committed_revision IS NULL)
+    )
+);
+
+-- Append-only authoritative project event log.
+-- A single committed command may emit more than one event; event_index preserves
+-- their deterministic order inside the command's resulting project revision.
+CREATE TABLE IF NOT EXISTS tupitube_project_event (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_uuid TEXT NOT NULL UNIQUE,
+    project_id INTEGER NOT NULL,
+    command_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    event_index INTEGER NOT NULL DEFAULT 0 CHECK (event_index >= 0),
+    event_type VARCHAR(100) NOT NULL,
+    payload TEXT,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+
+    FOREIGN KEY (project_id) REFERENCES tupitube_project(project_id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id, command_id)
+        REFERENCES tupitube_project_command(project_id, command_id) ON DELETE RESTRICT,
+    UNIQUE (project_id, revision, event_index)
+);
+
 -- Log table
 CREATE TABLE IF NOT EXISTS tupitube_log (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,3 +280,20 @@ CREATE INDEX IF NOT EXISTS idx_chat_created ON tupitube_chat(created_at);
 CREATE INDEX IF NOT EXISTS idx_grade_project ON tupitube_grade(project_id);
 CREATE INDEX IF NOT EXISTS idx_grade_student ON tupitube_grade(student_id);
 CREATE INDEX IF NOT EXISTS idx_grade_teacher ON tupitube_grade(teacher_student_id);
+
+-- Collaboration command/event indexes
+CREATE INDEX IF NOT EXISTS idx_project_command_status
+    ON tupitube_project_command(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_project_command_created
+    ON tupitube_project_command(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_project_command_dependency
+    ON tupitube_project_command(project_id, depends_on_command_id);
+CREATE INDEX IF NOT EXISTS idx_project_command_revision
+    ON tupitube_project_command(project_id, committed_revision);
+CREATE INDEX IF NOT EXISTS idx_project_event_revision
+    ON tupitube_project_event(project_id, revision, event_index);
+CREATE INDEX IF NOT EXISTS idx_project_event_command
+    ON tupitube_project_event(project_id, command_id);
+CREATE INDEX IF NOT EXISTS idx_project_event_type
+    ON tupitube_project_event(project_id, event_type);
+

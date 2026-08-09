@@ -55,7 +55,6 @@ Connection::Connection(qintptr socketDescriptor, TcpServer *server)
       m_auth(false),
       m_shouldClose(false),
       m_student(nullptr),
-      m_inactivityTimerId(0),
       m_inactivityTimeoutMs(600000) // Default: 10 minutes
 {
 #ifdef TUP_DEBUG
@@ -114,8 +113,8 @@ void Connection::run()
     if (m_ip.isNull())
         m_ip = "unknown";
 
-    // ✅ Start the inactivity timer inside the worker thread
-    resetInactivityTimer();
+    // Keep inactivity tracking entirely inside the worker thread.
+    m_inactivityElapsed.start();
 
     while (m_client && m_client->state() != QAbstractSocket::UnconnectedState) {
 
@@ -130,6 +129,36 @@ void Connection::run()
        }
 
        m_client->waitForReadyRead(100);
+
+       // readyRead() may have queued a package while waitForReadyRead() was
+       // blocking. Count that as activity before evaluating the timeout.
+       {
+           QMutexLocker locker(&m_readedMutex);
+           if (!m_readed.isEmpty())
+               m_inactivityElapsed.restart();
+       }
+
+       if (m_inactivityTimeoutMs > 0
+           && m_inactivityElapsed.isValid()
+           && m_inactivityElapsed.elapsed() >= m_inactivityTimeoutMs) {
+#ifdef TUP_DEBUG
+           qDebug() << "** [Connection::run()] - Connection closed by inactivity from ->" << m_ip;
+#endif
+           m_disconnectedByInactivity = true;
+
+           QDomDocument doc;
+           QDomElement root = doc.createElement("disconnect");
+           root.setAttribute("reason", "inactivity");
+           doc.appendChild(root);
+
+           // The socket belongs to this worker thread, so send the final notice here
+           // before closing the connection.
+           m_client->send(doc.toString(0));
+           m_client->flush();
+           m_client->disconnectFromHost();
+           m_client->close();
+           break;
+       }
 
        /*
        if (m_client->waitForReadyRead(100)) {
@@ -159,6 +188,10 @@ void Connection::run()
            QMutexLocker locker(&m_readedMutex);
            while (!m_readed.isEmpty()) {
                QString package = m_readed.dequeue();
+
+               // Receiving a complete package counts as activity. This runs in
+               // the socket worker thread, so no cross-thread QObject timer is needed.
+               m_inactivityElapsed.restart();
 
                if (!m_student)
                    setAuthenticationFlag(false);
@@ -238,9 +271,6 @@ void Connection::appendTextReaded(const QString &package)
 
     QMutexLocker locker(&m_readedMutex);
     m_readed.enqueue(package);
-
-    // Reset the inactivity timer when actual data is received.
-    QMetaObject::invokeMethod(this, "resetInactivityTimer", Qt::QueuedConnection);
 }
 
 void Connection::sendStringToClient(const QString &text)
@@ -360,48 +390,9 @@ QString Connection::ip() const
     return m_ip;
 }
 
-void Connection::timerEvent(QTimerEvent *event)
-{
-    if (event->timerId() == m_inactivityTimerId) {
-        #ifdef TUP_DEBUG
-                qDebug() << "** [Connection::timerEvent()] - Connection closed by inactivity from -> " << m_ip;
-        #endif
-        m_disconnectedByInactivity = true;
-        // Creating the inactivity disconnect package
-        QDomDocument doc;
-        QDomElement root = doc.createElement("disconnect");
-        root.setAttribute("reason", "inactivity");
-        doc.appendChild(root);
-
-        // Queueing it to be sent to the client
-        sendStringToClient(doc);
-
-        // Triggering graceful shutdown
-        // The run() loop will see m_shouldClose=true, flush the socket (sending our package), and close.
-        close();
-    } else {
-        QThread::timerEvent(event);
-    }
-}
-
 void Connection::setInactivityTimeout(int timeoutMs)
 {
+    // This is configured before start() in TcpServer::incomingConnection().
+    // The worker thread reads the value from run().
     m_inactivityTimeoutMs = timeoutMs;
-
-    if (m_inactivityTimerId != 0) {
-        killTimer(m_inactivityTimerId);
-        m_inactivityTimerId = startTimer(m_inactivityTimeoutMs);
-    }
-}
-
-void Connection::resetInactivityTimer()
-{
-    if (m_inactivityTimerId != 0) {
-        killTimer(m_inactivityTimerId);
-    }
-    m_inactivityTimerId = startTimer(m_inactivityTimeoutMs);
-
-    #ifdef TUP_DEBUG
-        qDebug() << "** [Connection::resetInactivityTimer()] - Timer reset for" << m_ip;
-    #endif
 }

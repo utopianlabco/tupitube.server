@@ -40,6 +40,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFileInfoList>
+#include <QSaveFile>
 #include <QDebug>
 
 PackageHandler::PackageHandler()
@@ -62,28 +63,46 @@ bool PackageHandler::makePackage(const QString &projectPath, const QString &pack
         return false;
     }
 
-    QuaZip zip(packagePath);
+    // QSaveFile creates the replacement file in the destination directory and
+    // only replaces the current package when commit() succeeds. Feeding the
+    // QSaveFile directly to QuaZip keeps the previous .tup snapshot intact
+    // while the new ZIP archive is being generated.
+    QSaveFile packageFile(packagePath);
+    if (!packageFile.open(QIODevice::WriteOnly)) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[PackageHandler::makePackage()] - Fatal Error: Can't open package for atomic save -> "
+                        << packagePath << " - Description: " << packageFile.errorString();
+        #endif
+        return false;
+    }
+
+    QuaZip zip(&packageFile);
+    zip.setAutoClose(false);
 
     if (!zip.open(QuaZip::mdCreate)) {
         #ifdef TUP_DEBUG
                qDebug() << "[PackageHandler::makePackage()] - Fatal Error: While creating package: " << zip.getZipError();
         #endif
+        packageFile.cancelWriting();
         return false;
     }
 
     const bool compressed = compress(&zip, projectPath);
     zip.close();
+    const int zipError = zip.getZipError();
 
-    if (!compressed) {
+    if (!compressed || zipError != UNZ_OK) {
         #ifdef TUP_DEBUG
-               qDebug() << "[PackageHandler::makePackage()] - Fatal Error: While compressing project: " << zip.getZipError();
+               qDebug() << "[PackageHandler::makePackage()] - Fatal Error: While compressing project: " << zipError;
         #endif
+        packageFile.cancelWriting();
         return false;
     }
 
-    if (zip.getZipError() != UNZ_OK) {
+    if (!packageFile.commit()) {
         #ifdef TUP_DEBUG
-               qDebug() << "[PackageHandler::makePackage()] - Fatal Error: Description: " << zip.getZipError();
+               qDebug() << "[PackageHandler::makePackage()] - Fatal Error: Can't commit package -> "
+                        << packagePath << " - Description: " << packageFile.errorString();
         #endif
         return false;
     }

@@ -39,7 +39,7 @@
 #include "notification.h"
 #include "../modules/students/student.h"
 #include <QThread>
-#include <QTimerEvent>
+#include <QElapsedTimer>
 #include <QQueue>
 #include <QHash>
 #include <QVariant>
@@ -86,16 +86,12 @@ public:
     void setInactivityTimeout(int timeoutMs);
     bool disconnectedByInactivity() const { return m_disconnectedByInactivity; }
 
-protected:
-    void timerEvent(QTimerEvent *event) override; // ✅ FIXED typo
-
 public slots:
     void close();
     void sendNotification(int code, const QString &text, Notification::Level level);
 
 private slots:
     void removeConnection();
-    void resetInactivityTimer(); // ✅ NEW: Resets the timer when activity is detected
 
 signals:
     void error(QTcpSocket::SocketError socketError);
@@ -124,9 +120,9 @@ private:
     QString m_sign;
     Student *m_student;
 
-    // ✅ NEW: Inactivity timeout tracking
-    int m_inactivityTimerId;
+    // Inactivity timeout is evaluated inside run(), where the socket lives.
     int m_inactivityTimeoutMs;
+    QElapsedTimer m_inactivityElapsed;
     bool m_disconnectedByInactivity = false;
 };
 

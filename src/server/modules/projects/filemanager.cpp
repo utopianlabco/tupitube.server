@@ -42,6 +42,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QDebug>
 #include <QDomDocument>
 #include <QTextStream>
@@ -112,7 +113,7 @@ bool createStudentDirectories(const QString &studentPath)
 
 bool writeXmlFile(const QString &filePath, const QDomDocument &doc)
 {
-    QFile file(filePath);
+    QSaveFile file(filePath);
 
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         #ifdef TUP_DEBUG
@@ -124,7 +125,23 @@ bool writeXmlFile(const QString &filePath, const QDomDocument &doc)
 
     QTextStream ts(&file);
     ts << doc.toString();
-    file.close();
+    ts.flush();
+
+    if (ts.status() != QTextStream::Ok) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[FileManager] - Fatal Error: Can't write file -> " << filePath;
+        #endif
+        file.cancelWriting();
+        return false;
+    }
+
+    if (!file.commit()) {
+        #ifdef TUP_DEBUG
+               qDebug() << "[FileManager] - Fatal Error: Can't commit file -> " << filePath
+                        << " - Description: " << file.errorString();
+        #endif
+        return false;
+    }
 
     return true;
 }

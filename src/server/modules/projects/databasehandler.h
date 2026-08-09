@@ -77,6 +77,62 @@ public:
 
     int getProjectIdFromFilename(const QString &filename);
 
+    // Server-authoritative collaboration persistence
+    struct ProjectRevisionInfo
+    {
+        bool found = false;
+        qint64 currentRevision = 0;
+        qint64 snapshotRevision = 0;
+        QString snapshotChecksum;
+        QString snapshotUpdatedAt;
+    };
+
+    struct ProjectCommandRecord
+    {
+        bool found = false;
+        int projectId = -1;
+        QString commandId;
+        int studentId = -1;
+        QString clientId;
+        QString commandType;
+        qint64 baseRevision = 0;
+        QString dependsOnCommandId;
+        QString requestHash;
+        QString status;
+        QString errorCode;
+        QString message;
+        qint64 committedRevision = -1;
+        QString createdAt;
+        QString updatedAt;
+        QString completedAt;
+    };
+
+    ProjectRevisionInfo getProjectRevisionInfo(int projectId) const;
+    ProjectCommandRecord getProjectCommand(int projectId, const QString &commandId) const;
+
+    bool insertProjectCommand(int projectId, const QString &commandId,
+                              int studentId = -1,
+                              const QString &clientId = QString(),
+                              const QString &commandType = QString(),
+                              qint64 baseRevision = 0,
+                              const QString &dependsOnCommandId = QString(),
+                              const QString &requestHash = QString(),
+                              const QString &status = QStringLiteral("processing"));
+
+    bool updateProjectCommandResult(int projectId, const QString &commandId,
+                                    const QString &status,
+                                    const QString &errorCode = QString(),
+                                    const QString &message = QString());
+
+    // Call only after the corresponding .tup snapshot has been saved successfully.
+    // The command result, project revision, and authoritative event are committed atomically in SQLite.
+    bool finalizeCommittedProjectCommand(int projectId, const QString &commandId,
+                                         qint64 *committedRevision,
+                                         const QString &eventUuid,
+                                         const QString &eventType,
+                                         const QString &eventPayload,
+                                         const QString &snapshotChecksum = QString());
+
     public:
         struct ProjectInfo
         {
