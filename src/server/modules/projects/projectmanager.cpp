@@ -351,7 +351,7 @@ void ProjectManager::importProject(Connection *connection, const QString &path, 
     }
 }
 
-void ProjectManager::registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project)
+void ProjectManager::registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project, bool sendSnapshot)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[ProjectManager::registerProject()]";
@@ -392,26 +392,30 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
         qWarning() << "[ProjectManager::registerProject()] - Login list: " << loginList;
     #endif
 
-    Project projectPackage(loginList, absolutePath);
-    connection->sendStringToClient(projectPackage.toString());
-
-    // Send notice to connected partners that new student joined
-    QList<Connection *> partners = m_connectionList[filename];
-    int size = partners.size();
-    Notice msg(connection->student()->login(), 1);
-
-    for (int i = 0; i < size; ++i)
-         partners.at(i)->sendStringToClient(msg.toString());
-
-    // Send notices to the new student about already-connected partners
-    for (int i = 0; i < size; ++i) {
-        Notice onlineMsg(partners.at(i)->student()->login(), 1);
-        connection->sendStringToClient(onlineMsg.toString());
+    if (sendSnapshot) {
+        Project projectPackage(loginList, absolutePath);
+        connection->sendStringToClient(projectPackage.toString());
     }
 
-    m_connectionList[filename].append(connection);
+    const bool alreadyConnected = m_connectionList[filename].contains(connection);
+    if (!alreadyConnected) {
+        // Send notice to connected partners that new student joined.
+        QList<Connection *> partners = m_connectionList[filename];
+        int size = partners.size();
+        Notice msg(connection->student()->login(), 1);
 
-    emit projectRegistered(filename);
+        for (int i = 0; i < size; ++i)
+             partners.at(i)->sendStringToClient(msg.toString());
+
+        // Send notices to the new student about already-connected partners.
+        for (int i = 0; i < size; ++i) {
+            Notice onlineMsg(partners.at(i)->student()->login(), 1);
+            connection->sendStringToClient(onlineMsg.toString());
+        }
+
+        m_connectionList[filename].append(connection);
+        emit projectRegistered(filename);
+    }
 }
 
 void ProjectManager::createImage(Connection *connection, int frame, int scene, const QString &title, const QString &topics, const QString &description)
@@ -859,6 +863,8 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
             connection->sendNotification(360, QObject::tr("Insufficient permissions"), 
                                          Notification::Warning);
         }
+    } else if (root == QStringLiteral("project_sync_request")) {
+        handleProjectSyncRequest(connection, package);
     } else if (root == "project_open") {
                if (connection->student()->isEnabled()) {
                    OpenProjectParser parser;
@@ -1621,6 +1627,189 @@ void ProjectManager::listStudentProjects(Connection *connection)
     connection->sendStringToClient(list.toString());
 }
 
+void ProjectManager::sendStoredProjectEvent(
+    Connection *connection,
+    const QString &projectID,
+    const DatabaseHandler::ProjectEventRecord &event)
+{
+    if (!connection || projectID.isEmpty() || event.eventUuid.isEmpty()
+            || event.commandId.isEmpty() || event.revision <= 0
+            || event.eventIndex < 0 || event.eventType.isEmpty()
+            || event.payload.isEmpty()) {
+        qWarning() << "[ProjectManager::sendStoredProjectEvent()] Incomplete stored event.";
+        return;
+    }
+
+    QDomDocument document;
+    QDomElement root = document.createElement(QStringLiteral("project_event"));
+    root.setAttribute(QStringLiteral("version"), QStringLiteral("1"));
+    root.setAttribute(QStringLiteral("event_id"), event.eventUuid);
+    root.setAttribute(QStringLiteral("caused_by"), event.commandId);
+    root.setAttribute(QStringLiteral("project_id"), projectID);
+    root.setAttribute(QStringLiteral("revision"), event.revision);
+    root.setAttribute(QStringLiteral("event_index"), event.eventIndex);
+    root.setAttribute(QStringLiteral("event_type"), event.eventType);
+    document.appendChild(root);
+
+    QDomElement payload = document.createElement(QStringLiteral("payload"));
+    payload.appendChild(document.createTextNode(event.payload));
+    root.appendChild(payload);
+
+    connection->sendStringToClient(document.toString(0));
+}
+
+void ProjectManager::sendProjectSyncResponse(
+    Connection *connection,
+    const QString &projectID,
+    const QString &mode,
+    qint64 fromRevision,
+    qint64 toRevision,
+    int eventCount)
+{
+    if (!connection)
+        return;
+
+    QDomDocument document;
+    QDomElement root = document.createElement(QStringLiteral("project_sync_response"));
+    root.setAttribute(QStringLiteral("version"), QStringLiteral("1"));
+    root.setAttribute(QStringLiteral("project_id"), projectID);
+    root.setAttribute(QStringLiteral("mode"), mode);
+    root.setAttribute(QStringLiteral("from_revision"), fromRevision);
+    root.setAttribute(QStringLiteral("to_revision"), toRevision);
+    root.setAttribute(QStringLiteral("event_count"), eventCount);
+    document.appendChild(root);
+    connection->sendStringToClient(document.toString(0));
+}
+
+void ProjectManager::handleProjectSyncRequest(Connection *connection, const QString &package)
+{
+    if (!connection || !connection->student() || !connection->student()->isEnabled())
+        return;
+
+    QDomDocument document;
+    if (!document.setContent(package)) {
+        qWarning() << "[ProjectManager::handleProjectSyncRequest()] Invalid XML.";
+        return;
+    }
+
+    const QDomElement root = document.documentElement();
+    if (root.tagName() != QStringLiteral("project_sync_request"))
+        return;
+
+    const QString projectID = root.attribute(QStringLiteral("project_id")).trimmed();
+    const QString owner = root.attribute(QStringLiteral("owner")).trimmed();
+
+    bool revisionOk = false;
+    const qint64 lastRevision = root.attribute(QStringLiteral("last_revision")).toLongLong(&revisionOk);
+    bool eventIndexOk = false;
+    const int lastEventIndex = root.attribute(QStringLiteral("last_event_index")).toInt(&eventIndexOk);
+    const bool forceSnapshot = root.attribute(QStringLiteral("force_snapshot")) == QStringLiteral("1");
+
+    if (projectID.isEmpty() || owner.isEmpty() || !revisionOk || lastRevision < -1
+            || !eventIndexOk || lastEventIndex < -1) {
+        qWarning() << "[ProjectManager::handleProjectSyncRequest()] Incomplete sync request.";
+        return;
+    }
+
+    const QString ownerID = m_dbHandler->studentID(owner);
+    const QString dbProjectKey = m_dbHandler->exists(projectID, ownerID);
+    if (dbProjectKey == QStringLiteral("-1")
+            || !m_dbHandler->accessIsConfirmed(dbProjectKey, connection->student()->uid())) {
+        connection->sendNotification(360, QObject::tr("Insufficient Permissions"), Notification::Error);
+        return;
+    }
+
+    const int dbProjectId = dbProjectKey.toInt();
+    const DatabaseHandler::ProjectRevisionInfo revisionInfo =
+        m_dbHandler->getProjectRevisionInfo(dbProjectId);
+    if (!revisionInfo.found)
+        return;
+
+    const int catchUpLimit = 500;
+    bool useEvents = !forceSnapshot
+        && lastRevision >= 0
+        && lastRevision <= revisionInfo.currentRevision
+        && m_openedProjects.contains(projectID);
+
+    QList<DatabaseHandler::ProjectEventRecord> events;
+    if (useEvents) {
+        events = m_dbHandler->getProjectEventsAfter(
+            dbProjectId, lastRevision, lastEventIndex, catchUpLimit + 1);
+
+        if (events.size() > catchUpLimit) {
+            useEvents = false;
+        } else {
+            qint64 expectedRevision = lastRevision;
+            int expectedEventIndex = lastEventIndex;
+
+            for (const DatabaseHandler::ProjectEventRecord &event : events) {
+                const bool nextSameRevision =
+                    expectedEventIndex >= 0
+                    && event.revision == expectedRevision
+                    && event.eventIndex == expectedEventIndex + 1;
+                const bool nextRevision =
+                    event.revision == expectedRevision + 1
+                    && event.eventIndex == 0;
+
+                if (!nextSameRevision && !nextRevision) {
+                    useEvents = false;
+                    break;
+                }
+
+                expectedRevision = event.revision;
+                expectedEventIndex = event.eventIndex;
+            }
+
+            if (useEvents && revisionInfo.currentRevision > lastRevision) {
+                if (events.isEmpty()
+                        || events.last().revision != revisionInfo.currentRevision) {
+                    useEvents = false;
+                }
+            }
+        }
+    }
+
+    if (useEvents) {
+        NetProject *project = m_openedProjects.value(projectID, nullptr);
+        if (!project)
+            useEvents = false;
+        else {
+            registerProject(connection, ownerID, projectID, project, false);
+
+#ifdef TUP_DEBUG
+            qWarning() << "[ProjectManager::handleProjectSyncRequest()] Event catch-up. Project:"
+                       << projectID << "From:" << lastRevision << lastEventIndex
+                       << "To:" << revisionInfo.currentRevision
+                       << "Events:" << events.size();
+#endif
+
+            for (const DatabaseHandler::ProjectEventRecord &event : events)
+                sendStoredProjectEvent(connection, projectID, event);
+
+            sendProjectSyncResponse(connection, projectID, QStringLiteral("events"),
+                                    lastRevision, revisionInfo.currentRevision, events.size());
+            return;
+        }
+    }
+
+#ifdef TUP_DEBUG
+    qWarning() << "[ProjectManager::handleProjectSyncRequest()] Snapshot fallback. Project:"
+               << projectID << "Client revision:" << lastRevision
+               << "Server revision:" << revisionInfo.currentRevision;
+#endif
+
+    if (m_openedProjects.contains(projectID)) {
+        registerProject(connection, ownerID, projectID, m_openedProjects.value(projectID), true);
+    } else {
+        openProject(projectID, owner, connection);
+    }
+
+    if (connection->data(Info::ProjectIsOpen).toBool()) {
+        sendProjectSyncResponse(connection, projectID, QStringLiteral("snapshot"),
+                                lastRevision, revisionInfo.currentRevision, 0);
+    }
+}
+
 void ProjectManager::sendProjectEventToProjectMembers(
     Connection *connection,
     const ProjectCommandResult &result)
@@ -1668,7 +1857,7 @@ void ProjectManager::sendProjectEventToProjectMembers(
     document.appendChild(root);
 
     QDomElement payload = document.createElement(QStringLiteral("payload"));
-    payload.appendChild(document.createCDATASection(result.eventPayload));
+    payload.appendChild(document.createTextNode(result.eventPayload));
     root.appendChild(payload);
 
 #ifdef TUP_DEBUG

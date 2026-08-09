@@ -87,6 +87,18 @@ public:
         QString snapshotUpdatedAt;
     };
 
+    struct ProjectEventRecord
+    {
+        QString eventUuid;
+        int projectId = -1;
+        QString commandId;
+        qint64 revision = -1;
+        int eventIndex = -1;
+        QString eventType;
+        QString payload;
+        QString createdAt;
+    };
+
     struct ProjectCommandRecord
     {
         bool found = false;
@@ -109,6 +121,10 @@ public:
 
     ProjectRevisionInfo getProjectRevisionInfo(int projectId) const;
     ProjectCommandRecord getProjectCommand(int projectId, const QString &commandId) const;
+    QList<ProjectEventRecord> getProjectEventsAfter(int projectId,
+                                                    qint64 revision,
+                                                    int eventIndex,
+                                                    int limit = 501) const;
 
     bool insertProjectCommand(int projectId, const QString &commandId,
                               int studentId = -1,

@@ -129,8 +129,17 @@ signals:
         void sendProjectEventToProjectMembers(
             Connection *connection,
             const ProjectCommandResult &result);
+        void sendStoredProjectEvent(
+            Connection *connection,
+            const QString &projectID,
+            const DatabaseHandler::ProjectEventRecord &event);
+        void handleProjectSyncRequest(Connection *connection, const QString &package);
+        void sendProjectSyncResponse(Connection *connection, const QString &projectID,
+                                     const QString &mode, qint64 fromRevision,
+                                     qint64 toRevision, int eventCount);
 
-        void registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project);
+        void registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project,
+                             bool sendSnapshot = true);
         void listStudentProjects(Connection *connection);
         QString currentDate() const;
         void loadVideoPlugin();

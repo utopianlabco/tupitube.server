@@ -1874,6 +1874,64 @@ DatabaseHandler::ProjectCommandRecord DatabaseHandler::getProjectCommand(
     return record;
 }
 
+QList<DatabaseHandler::ProjectEventRecord> DatabaseHandler::getProjectEventsAfter(
+    int projectId, qint64 revision, int eventIndex, int limit) const
+{
+    QList<ProjectEventRecord> events;
+
+    if (projectId <= 0 || revision < 0 || limit <= 0)
+        return events;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    QSqlQuery query(connection);
+
+    if (eventIndex < 0) {
+        query.prepare("SELECT event_uuid, project_id, command_id, revision, event_index, "
+                      "event_type, payload, created_at "
+                      "FROM tupitube_project_event "
+                      "WHERE project_id = ? AND revision > ? "
+                      "ORDER BY revision ASC, event_index ASC LIMIT ?");
+        query.addBindValue(projectId);
+        query.addBindValue(revision);
+        query.addBindValue(limit);
+    } else {
+        query.prepare("SELECT event_uuid, project_id, command_id, revision, event_index, "
+                      "event_type, payload, created_at "
+                      "FROM tupitube_project_event "
+                      "WHERE project_id = ? "
+                      "AND (revision > ? OR (revision = ? AND event_index > ?)) "
+                      "ORDER BY revision ASC, event_index ASC LIMIT ?");
+        query.addBindValue(projectId);
+        query.addBindValue(revision);
+        query.addBindValue(revision);
+        query.addBindValue(eventIndex);
+        query.addBindValue(limit);
+    }
+
+    if (!query.exec()) {
+#ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::getProjectEventsAfter()] - Error:"
+                   << query.lastError().text();
+#endif
+        return events;
+    }
+
+    while (query.next()) {
+        ProjectEventRecord event;
+        event.eventUuid = query.value(0).toString();
+        event.projectId = query.value(1).toInt();
+        event.commandId = query.value(2).toString();
+        event.revision = query.value(3).toLongLong();
+        event.eventIndex = query.value(4).toInt();
+        event.eventType = query.value(5).toString();
+        event.payload = query.value(6).toString();
+        event.createdAt = query.value(7).toString();
+        events.append(event);
+    }
+
+    return events;
+}
+
 bool DatabaseHandler::insertProjectCommand(int projectId, const QString &commandId,
                                            int studentId, const QString &clientId,
                                            const QString &commandType, qint64 baseRevision,
