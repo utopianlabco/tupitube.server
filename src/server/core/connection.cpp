@@ -113,8 +113,9 @@ void Connection::run()
     if (m_ip.isNull())
         m_ip = "unknown";
 
-    // Keep inactivity tracking entirely inside the worker thread.
+    // Keep inactivity and heartbeat-liveness tracking entirely inside the worker thread.
     m_inactivityElapsed.start();
+    m_heartbeatElapsed.start();
 
     while (m_client && m_client->state() != QAbstractSocket::UnconnectedState) {
 
@@ -143,6 +144,19 @@ void Connection::run()
                    break;
                }
            }
+       }
+
+       // Once a client proves heartbeat support by sending its first ping,
+       // require continued heartbeats. This retires half-open authenticated
+       // sessions quickly without breaking legacy clients that never ping.
+       if (m_heartbeatSeen
+           && m_heartbeatElapsed.isValid()
+           && m_heartbeatElapsed.elapsed() >= 20000) {
+#ifdef TUP_DEBUG
+           qWarning() << "[Connection::run()] Heartbeat timeout; closing stale connection from ->" << m_ip;
+#endif
+           m_client->abort();
+           break;
        }
 
        if (m_inactivityTimeoutMs > 0
@@ -210,9 +224,15 @@ void Connection::run()
                        QString root = doc.documentElement().tagName();
 
                        // Heartbeats prove transport liveness, but they do not count
-                       // as user activity for the server inactivity policy.
-                       if (root != QStringLiteral("ping"))
+                       // as user activity for the server inactivity policy. Once a
+                       // heartbeat-capable client is observed, use its pings to retire
+                       // half-open authenticated sessions promptly.
+                       if (root == QStringLiteral("ping")) {
+                           m_heartbeatSeen = true;
+                           m_heartbeatElapsed.restart();
+                       } else {
                            m_inactivityElapsed.restart();
+                       }
 
                         if ((root.compare("user_connect") == 0 && !isAuthenticated()) ||
                            (root.compare("user_connect") != 0 && isAuthenticated())) {

@@ -123,6 +123,8 @@ private:
     // Inactivity timeout is evaluated inside run(), where the socket lives.
     int m_inactivityTimeoutMs;
     QElapsedTimer m_inactivityElapsed;
+    QElapsedTimer m_heartbeatElapsed;
+    bool m_heartbeatSeen = false;
     bool m_disconnectedByInactivity = false;
 };
 
