@@ -395,6 +395,28 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
     if (sendSnapshot) {
         Project projectPackage(loginList, absolutePath);
         connection->sendStringToClient(projectPackage.toString());
+
+        // The snapshot must carry an authoritative ordering baseline. The
+        // legacy server_project package has no revision field, so send a small
+        // companion packet immediately after it. This also prevents a client
+        // that disconnects before seeing any live project_event from syncing
+        // with last_revision=-1.
+        const DatabaseHandler::ProjectRevisionInfo revisionInfo =
+            m_dbHandler->getProjectRevisionInfo(projectId.toInt());
+        if (revisionInfo.found) {
+            QDomDocument revisionDocument;
+            QDomElement revisionRoot =
+                revisionDocument.createElement(QStringLiteral("project_revision"));
+            revisionRoot.setAttribute(QStringLiteral("version"), QStringLiteral("1"));
+            revisionRoot.setAttribute(QStringLiteral("project_id"), filename);
+            revisionRoot.setAttribute(
+                QStringLiteral("revision"), revisionInfo.currentRevision);
+            revisionRoot.setAttribute(
+                QStringLiteral("event_index"),
+                revisionInfo.currentRevision > 0 ? 0 : -1);
+            revisionDocument.appendChild(revisionRoot);
+            connection->sendStringToClient(revisionDocument.toString(0));
+        }
     }
 
     const bool alreadyConnected = m_connectionList[filename].contains(connection);
@@ -1125,10 +1147,10 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         << "Opened projects:" << m_openedProjects.keys();
 #endif
 
+    const int dbProjectId = m_dbHandler->getProjectIdFromFilename(projectID);
+
     CommandResultRegistry *registry =
         m_commandResultRegistries.value(projectID, nullptr);
-
-    const int dbProjectId = m_dbHandler->getProjectIdFromFilename(projectID);
 
     if (!result.commandId.isEmpty()) {
         if (registry && registry->contains(result.commandId)) {
@@ -1140,6 +1162,20 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             result.errorCode = stored.errorCode;
             result.message = stored.message;
             result.duplicate = true;
+
+            // The in-memory registry intentionally stores only the terminal
+            // result. Recover authoritative commit metadata from SQLite so a
+            // duplicate/retried command_result can still advance the sender's
+            // revision without replaying the mutation.
+            if (stored.status == CommandResultRegistry::Committed
+                    && dbProjectId > 0) {
+                const DatabaseHandler::ProjectCommandRecord durable =
+                    m_dbHandler->getProjectCommand(dbProjectId, result.commandId);
+                if (durable.found
+                        && durable.status == QStringLiteral("committed")) {
+                    result.committedRevision = durable.committedRevision;
+                }
+            }
 
 #ifdef TUP_DEBUG
             qWarning()
@@ -1405,9 +1441,10 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             m_dbHandler->getProjectCommand(dbProjectId, result.commandId);
 
         if (stored.found) {
-            if (stored.status == QStringLiteral("committed"))
+            if (stored.status == QStringLiteral("committed")) {
                 result.status = ProjectCommandResult::Committed;
-            else if (stored.status == QStringLiteral("rejected"))
+                result.committedRevision = stored.committedRevision;
+            } else if (stored.status == QStringLiteral("rejected"))
                 result.status = ProjectCommandResult::Rejected;
             else
                 result.status = ProjectCommandResult::Failed;
@@ -1609,7 +1646,24 @@ void ProjectManager::sendCommandResult(
         << "Error:" << result.errorCode;
 #endif
 
-    connection->sendStringToClient(package.toString(0));
+    QString xml = package.toString(0);
+
+    if (result.isCommitted() && result.committedRevision > 0) {
+        QDomDocument document;
+        if (document.setContent(xml)) {
+            QDomElement root = document.documentElement();
+            if (!root.isNull()
+                    && root.tagName() == QStringLiteral("command_result")) {
+                root.setAttribute(
+                    QStringLiteral("committed_revision"),
+                    result.committedRevision);
+                root.setAttribute(QStringLiteral("event_index"), 0);
+                xml = document.toString(0);
+            }
+        }
+    }
+
+    connection->sendStringToClient(xml);
 }
 
 void ProjectManager::listStudentProjects(Connection *connection)
