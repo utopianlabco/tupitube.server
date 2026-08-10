@@ -130,12 +130,19 @@ void Connection::run()
 
        m_client->waitForReadyRead(100);
 
-       // readyRead() may have queued a package while waitForReadyRead() was
-       // blocking. Count that as activity before evaluating the timeout.
+       // A queued application package counts as activity before evaluating
+       // the timeout. Heartbeat pings intentionally do not reset the user
+       // inactivity clock.
        {
            QMutexLocker locker(&m_readedMutex);
-           if (!m_readed.isEmpty())
-               m_inactivityElapsed.restart();
+           for (const QString &queuedPackage : m_readed) {
+               QDomDocument queuedDocument;
+               if (queuedDocument.setContent(queuedPackage.trimmed())
+                       && queuedDocument.documentElement().tagName() != QStringLiteral("ping")) {
+                   m_inactivityElapsed.restart();
+                   break;
+               }
+           }
        }
 
        if (m_inactivityTimeoutMs > 0
@@ -189,10 +196,6 @@ void Connection::run()
            while (!m_readed.isEmpty()) {
                QString package = m_readed.dequeue();
 
-               // Receiving a complete package counts as activity. This runs in
-               // the socket worker thread, so no cross-thread QObject timer is needed.
-               m_inactivityElapsed.restart();
-
                if (!m_student)
                    setAuthenticationFlag(false);
 
@@ -205,6 +208,11 @@ void Connection::run()
                    QDomDocument doc;
                    if (doc.setContent(package.trimmed())) {
                        QString root = doc.documentElement().tagName();
+
+                       // Heartbeats prove transport liveness, but they do not count
+                       // as user activity for the server inactivity policy.
+                       if (root != QStringLiteral("ping"))
+                           m_inactivityElapsed.restart();
 
                         if ((root.compare("user_connect") == 0 && !isAuthenticated()) ||
                            (root.compare("user_connect") != 0 && isAuthenticated())) {

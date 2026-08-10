@@ -437,6 +437,11 @@ void TcpServer::handlePackage(Connection* client, const QString &root, const QSt
     } else if (root.startsWith("communication_")) {
         m_communicationManager->handlePackage(pkg);
     } else if (root.compare("ping") == 0) {
+        QDomDocument response;
+        QDomElement pong = response.createElement(QStringLiteral("pong"));
+        pong.setAttribute(QStringLiteral("version"), QStringLiteral("1"));
+        response.appendChild(pong);
+        client->sendStringToClient(response, false);
         delete pkg;
     }
 }
