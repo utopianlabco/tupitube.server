@@ -72,6 +72,7 @@
 #include <QDebug>
 #include <QCryptographicHash>
 #include <QUuid>
+#include <QSet>
 
 // QString ProjectManager::BROWSER_FINGERPRINT = QString("TupiTube_Media 1.0");
 
@@ -840,6 +841,7 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                 #ifdef TUP_DEBUG
                     qWarning() << "[ProjectManager::handlePackage()] - Processing request for project:" << projectID;
                 #endif
+
                 const ProjectCommandResult result =
                     handleProjectRequest(projectID, package, connection->student()->uid());
 
@@ -1861,6 +1863,7 @@ void ProjectManager::handleProjectSyncRequest(Connection *connection, const QStr
     if (connection->data(Info::ProjectIsOpen).toBool()) {
         sendProjectSyncResponse(connection, projectID, QStringLiteral("snapshot"),
                                 lastRevision, revisionInfo.currentRevision, 0);
+
     }
 }
 
