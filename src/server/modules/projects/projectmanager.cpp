@@ -191,7 +191,7 @@ void ProjectManager::createProject(Connection *connection)
     }
 }
 
-void ProjectManager::openProject(const QString &filename, const QString &owner, Connection *connection)
+void ProjectManager::openProject(const QString &filename, const QString &owner, Connection *connection, bool sendSnapshot)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[ProjectManager::openProject()]";
@@ -270,7 +270,7 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             emit projectEventLog(msg, "INFO");
         }
 
-        registerProject(connection, ownerID, filename, project);
+        registerProject(connection, ownerID, filename, project, sendSnapshot);
     } else {
         #ifdef TUP_DEBUG
                qDebug() << "[ProjectManager::openProject()] - Fatal Error: Project doesn't exist -> " << filename;
@@ -1836,6 +1836,37 @@ void ProjectManager::handleProjectSyncRequest(Connection *connection, const QStr
         m_dbHandler->getProjectRevisionInfo(dbProjectId);
     if (!revisionInfo.found)
         return;
+
+    // A client that is already at the authoritative revision needs no
+    // snapshot, even if the server has just restarted and therefore has no
+    // in-memory NetProject yet. Reload/register the project server-side
+    // without transmitting a redundant snapshot, then acknowledge a
+    // zero-event synchronization.
+    const bool clientAlreadyCurrent = !forceSnapshot
+        && lastRevision == revisionInfo.currentRevision
+        && ((revisionInfo.currentRevision == 0 && lastEventIndex <= 0)
+            || (revisionInfo.currentRevision > 0 && lastEventIndex >= 0));
+
+    if (clientAlreadyCurrent) {
+        if (m_openedProjects.contains(projectID)) {
+            registerProject(connection, ownerID, projectID,
+                            m_openedProjects.value(projectID), false);
+        } else {
+            openProject(projectID, owner, connection, false);
+        }
+
+        if (connection->data(Info::ProjectIsOpen).toBool()) {
+#ifdef TUP_DEBUG
+            qWarning() << "[ProjectManager::handleProjectSyncRequest()] Client already current. Project:"
+                       << projectID << "Revision:" << revisionInfo.currentRevision
+                       << "Saved revision:" << revisionInfo.savedRevision;
+#endif
+            sendProjectSyncResponse(connection, projectID, QStringLiteral("events"),
+                                    lastRevision, revisionInfo.currentRevision,
+                                    revisionInfo.savedRevision, 0);
+        }
+        return;
+    }
 
     const int catchUpLimit = 500;
     bool useEvents = !forceSnapshot

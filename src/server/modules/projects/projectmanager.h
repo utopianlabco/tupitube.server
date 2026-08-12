@@ -103,7 +103,7 @@ signals:
 
     private:
         void createProject(Connection *connection);
-        void openProject(const QString &filename, const QString &owner, Connection *connection);
+        void openProject(const QString &filename, const QString &owner, Connection *connection, bool sendSnapshot = true);
         void importProject(Connection *connection, const QString &path, const QByteArray &data);
         void createImage(Connection *connection, int frame, int scene, const QString &title, const QString &topics,
                          const QString &description);
