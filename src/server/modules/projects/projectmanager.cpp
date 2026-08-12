@@ -413,6 +413,8 @@ void ProjectManager::registerProject(Connection *connection, const QString &uid,
             revisionRoot.setAttribute(
                 QStringLiteral("revision"), revisionInfo.currentRevision);
             revisionRoot.setAttribute(
+                QStringLiteral("saved_revision"), revisionInfo.savedRevision);
+            revisionRoot.setAttribute(
                 QStringLiteral("event_index"),
                 revisionInfo.currentRevision > 0 ? 0 : -1);
             revisionDocument.appendChild(revisionRoot);
@@ -942,20 +944,72 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                    if (parser.parse(package)) {
                        QString projectID = connection->data(Info::ProjectID).toString();
                        if (m_openedProjects.contains(projectID)) {
-                           if (!saveProject(projectID, parser.exit() == 1))
-                               connection->sendNotification(381, QObject::tr("Error saving project %1").arg(projectID), 
-                                                                 Notification::Error);
+                           // Save quietly so NetProject does not broadcast a generic
+                           // notification to every connection. The client that issued
+                           // project_save needs a deterministic completion response.
+                           if (saveProject(projectID, true)) {
+                               const int dbProjectId = m_dbHandler->getProjectIdFromFilename(projectID);
+                               qint64 savedRevision = -1;
+                               if (dbProjectId <= 0
+                                       || !m_dbHandler->markProjectSaved(dbProjectId, &savedRevision)) {
+                                   connection->sendNotification(381,
+                                       QObject::tr("Project file was saved, but save revision metadata could not be updated"),
+                                       Notification::Error);
+                               } else {
+                                   // Acknowledge the save only to the requester so only that
+                                   // client completes its local save UI state.
+                                   connection->sendNotification(380, QObject::tr("Project saved successfully"),
+                                                                Notification::Info);
+
+                                   // Inform active collaborators visually and also send a
+                                   // machine-readable saved revision. The latter lets clients
+                                   // resolve dirty state without depending on a transient OSD
+                                   // notification, and is safe even if edits continue later.
+                                   const QString saverLogin = connection->student()->login();
+                                   const QString collaboratorMessage =
+                                       QObject::tr("%1 saved the project").arg(saverLogin);
+
+                                   QDomDocument savedDocument;
+                                   QDomElement savedRoot =
+                                       savedDocument.createElement(QStringLiteral("project_saved"));
+                                   savedRoot.setAttribute(QStringLiteral("version"), QStringLiteral("1"));
+                                   savedRoot.setAttribute(QStringLiteral("project_id"), projectID);
+                                   savedRoot.setAttribute(QStringLiteral("revision"), savedRevision);
+                                   savedRoot.setAttribute(QStringLiteral("saver"), saverLogin);
+                                   savedDocument.appendChild(savedRoot);
+                                   const QString savedPackage = savedDocument.toString(0);
+
+                                   // The requester also receives the revision metadata so
+                                   // its baseline stays aligned for subsequent mutations.
+                                   connection->sendStringToClient(savedPackage);
+
+                                   const QList<Connection *> partners = m_connectionList.value(projectID);
+                                   for (Connection *partner : partners) {
+                                       if (partner && partner != connection) {
+                                           partner->sendNotification(385, collaboratorMessage,
+                                                                     Notification::Info);
+                                           partner->sendStringToClient(savedPackage);
+                                       }
+                                   }
+                               }
+                           } else {
+                               connection->sendNotification(381, QObject::tr("Error saving project %1").arg(projectID),
+                                                            Notification::Error);
+                           }
                        } else {
-                           connection->sendNotification(321, QObject::tr("Project %1 doesn't exist!").arg(projectID), 
+                           connection->sendNotification(381, QObject::tr("Project %1 doesn't exist!").arg(projectID),
                                                         Notification::Error);
                        }
                    } else {
                        #ifdef TUP_DEBUG
                               qDebug() << "[ProjectManager::handlePackage()] - Fatal Error: Can't parse project_save package";
                        #endif
+                       connection->sendNotification(381, QObject::tr("Invalid project save request"),
+                                                    Notification::Error);
                    }
                } else {
-                   connection->sendNotification(360, QObject::tr("Insufficient permissions"), Notification::Error);
+                   connection->sendNotification(381, QObject::tr("Insufficient permissions to save project"),
+                                                Notification::Error);
                }
     } else if (root == "project_image") {
                if (connection->student()->isEnabled()) {
@@ -1720,6 +1774,7 @@ void ProjectManager::sendProjectSyncResponse(
     const QString &mode,
     qint64 fromRevision,
     qint64 toRevision,
+    qint64 savedRevision,
     int eventCount)
 {
     if (!connection)
@@ -1732,6 +1787,7 @@ void ProjectManager::sendProjectSyncResponse(
     root.setAttribute(QStringLiteral("mode"), mode);
     root.setAttribute(QStringLiteral("from_revision"), fromRevision);
     root.setAttribute(QStringLiteral("to_revision"), toRevision);
+    root.setAttribute(QStringLiteral("saved_revision"), savedRevision);
     root.setAttribute(QStringLiteral("event_count"), eventCount);
     document.appendChild(root);
     connection->sendStringToClient(document.toString(0));
@@ -1843,7 +1899,8 @@ void ProjectManager::handleProjectSyncRequest(Connection *connection, const QStr
                 sendStoredProjectEvent(connection, projectID, event);
 
             sendProjectSyncResponse(connection, projectID, QStringLiteral("events"),
-                                    lastRevision, revisionInfo.currentRevision, events.size());
+                                    lastRevision, revisionInfo.currentRevision,
+                                    revisionInfo.savedRevision, events.size());
             return;
         }
     }
@@ -1862,7 +1919,8 @@ void ProjectManager::handleProjectSyncRequest(Connection *connection, const QStr
 
     if (connection->data(Info::ProjectIsOpen).toBool()) {
         sendProjectSyncResponse(connection, projectID, QStringLiteral("snapshot"),
-                                lastRevision, revisionInfo.currentRevision, 0);
+                                lastRevision, revisionInfo.currentRevision,
+                                revisionInfo.savedRevision, 0);
 
     }
 }

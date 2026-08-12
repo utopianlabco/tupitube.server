@@ -233,6 +233,7 @@ void DatabaseHandler::createDatabaseSchema()
         "group_project INTEGER DEFAULT 0,"
         "current_revision INTEGER NOT NULL DEFAULT 0 CHECK (current_revision >= 0),"
         "snapshot_revision INTEGER NOT NULL DEFAULT 0 CHECK (snapshot_revision >= 0),"
+        "saved_revision INTEGER NOT NULL DEFAULT 0 CHECK (saved_revision >= 0),"
         "snapshot_checksum TEXT,"
         "snapshot_updated_at DATETIME,"
         "created_at DATETIME DEFAULT (datetime('now')),"
@@ -243,6 +244,32 @@ void DatabaseHandler::createDatabaseSchema()
         "FOREIGN KEY (period_id) REFERENCES tupitube_period(period_id)"
         ")";
     query.exec(createProjectTable);
+
+    // Existing installations need an explicit migration because
+    // CREATE TABLE IF NOT EXISTS does not add newly introduced columns.
+    // When saved_revision is first introduced, initialize it to the current
+    // authoritative revision so upgrading an already durable project does not
+    // manufacture a false unsaved state.
+    QSqlDatabase schemaConnection = resolveDatabaseConnection(db);
+    const QSqlRecord projectRecord =
+        schemaConnection.record(QStringLiteral("tupitube_project"));
+    const bool hasSavedRevision =
+        projectRecord.indexOf(QStringLiteral("saved_revision")) >= 0;
+
+    if (!hasSavedRevision) {
+        QSqlQuery migrationQuery(schemaConnection);
+        if (!migrationQuery.exec(
+                "ALTER TABLE tupitube_project "
+                "ADD COLUMN saved_revision INTEGER NOT NULL DEFAULT 0")) {
+            qCritical() << "[DatabaseHandler::createDatabaseSchema()] - Cannot add saved_revision:"
+                        << migrationQuery.lastError().text();
+        } else if (!migrationQuery.exec(
+                       "UPDATE tupitube_project "
+                       "SET saved_revision = current_revision")) {
+            qCritical() << "[DatabaseHandler::createDatabaseSchema()] - Cannot initialize saved_revision:"
+                        << migrationQuery.lastError().text();
+        }
+    }
 
     // Create project_student join table
     QString createProjectStudentTable =
@@ -1805,7 +1832,7 @@ DatabaseHandler::ProjectRevisionInfo DatabaseHandler::getProjectRevisionInfo(int
 
     QSqlDatabase connection = resolveDatabaseConnection(db);
     QSqlQuery query(connection);
-    query.prepare("SELECT current_revision, snapshot_revision, snapshot_checksum, snapshot_updated_at "
+    query.prepare("SELECT current_revision, snapshot_revision, saved_revision, snapshot_checksum, snapshot_updated_at "
                   "FROM tupitube_project WHERE project_id = ?");
     query.addBindValue(projectId);
 
@@ -1823,9 +1850,99 @@ DatabaseHandler::ProjectRevisionInfo DatabaseHandler::getProjectRevisionInfo(int
     info.found = true;
     info.currentRevision = query.value(0).toLongLong();
     info.snapshotRevision = query.value(1).toLongLong();
-    info.snapshotChecksum = query.value(2).toString();
-    info.snapshotUpdatedAt = query.value(3).toString();
+    info.savedRevision = query.value(2).toLongLong();
+    info.snapshotChecksum = query.value(3).toString();
+    info.snapshotUpdatedAt = query.value(4).toString();
     return info;
+}
+
+bool DatabaseHandler::markProjectSaved(int projectId, qint64 *savedRevision)
+{
+    if (projectId <= 0)
+        return false;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    if (!connection.isValid() || !connection.isOpen()) {
+        qWarning() << "[DatabaseHandler::markProjectSaved()] - No open database connection";
+        return false;
+    }
+
+    // Be defensive with upgraded installations. createDatabaseSchema() normally
+    // performs this migration at startup, but ProjectManager owns a separate
+    // DatabaseHandler instance and may resolve the shared/default connection.
+    // Ensure the column exists on the actual connection used for this update.
+    QSqlRecord projectRecord = connection.record(QStringLiteral("tupitube_project"));
+    if (projectRecord.indexOf(QStringLiteral("saved_revision")) < 0) {
+        QSqlQuery migrationQuery(connection);
+        if (!migrationQuery.exec(
+                "ALTER TABLE tupitube_project "
+                "ADD COLUMN saved_revision INTEGER NOT NULL DEFAULT 0")) {
+            qWarning() << "[DatabaseHandler::markProjectSaved()] - Cannot add saved_revision:"
+                       << migrationQuery.lastError().text();
+            return false;
+        }
+        if (!migrationQuery.exec(
+                "UPDATE tupitube_project SET saved_revision = current_revision")) {
+            qWarning() << "[DatabaseHandler::markProjectSaved()] - Cannot initialize saved_revision:"
+                       << migrationQuery.lastError().text();
+            return false;
+        }
+    }
+
+    if (!connection.transaction()) {
+        qWarning() << "[DatabaseHandler::markProjectSaved()] - Cannot start transaction:"
+                   << connection.lastError().text();
+        return false;
+    }
+
+    QSqlQuery updateQuery(connection);
+    updateQuery.prepare("UPDATE tupitube_project "
+                        "SET saved_revision = current_revision, updated_at = datetime('now') "
+                        "WHERE project_id = ?");
+    updateQuery.addBindValue(projectId);
+
+    if (!updateQuery.exec()) {
+        qWarning() << "[DatabaseHandler::markProjectSaved()] - Update failed:"
+                   << updateQuery.lastError().text();
+        updateQuery.finish();
+        connection.rollback();
+        return false;
+    }
+
+    if (updateQuery.numRowsAffected() != 1) {
+        qWarning() << "[DatabaseHandler::markProjectSaved()] - Unexpected affected row count:"
+                   << updateQuery.numRowsAffected() << "projectId:" << projectId;
+        updateQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    updateQuery.finish();
+
+    QSqlQuery readQuery(connection);
+    readQuery.prepare("SELECT saved_revision FROM tupitube_project WHERE project_id = ?");
+    readQuery.addBindValue(projectId);
+    if (!readQuery.exec() || !readQuery.next()) {
+        qWarning() << "[DatabaseHandler::markProjectSaved()] - Readback failed:"
+                   << readQuery.lastError().text();
+        readQuery.finish();
+        connection.rollback();
+        return false;
+    }
+
+    const qint64 revision = readQuery.value(0).toLongLong();
+    readQuery.finish();
+
+    if (!connection.commit()) {
+        qWarning() << "[DatabaseHandler::markProjectSaved()] - Commit failed:"
+                   << connection.lastError().text();
+        connection.rollback();
+        return false;
+    }
+
+    if (savedRevision)
+        *savedRevision = revision;
+
+    return true;
 }
 
 DatabaseHandler::ProjectCommandRecord DatabaseHandler::getProjectCommand(

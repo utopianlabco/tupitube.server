@@ -136,7 +136,7 @@ signals:
         void handleProjectSyncRequest(Connection *connection, const QString &package);
         void sendProjectSyncResponse(Connection *connection, const QString &projectID,
                                      const QString &mode, qint64 fromRevision,
-                                     qint64 toRevision, int eventCount);
+                                     qint64 toRevision, qint64 savedRevision, int eventCount);
 
         void registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project,
                              bool sendSnapshot = true);

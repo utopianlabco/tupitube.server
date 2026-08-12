@@ -83,6 +83,7 @@ public:
         bool found = false;
         qint64 currentRevision = 0;
         qint64 snapshotRevision = 0;
+        qint64 savedRevision = 0;
         QString snapshotChecksum;
         QString snapshotUpdatedAt;
     };
@@ -120,6 +121,7 @@ public:
     };
 
     ProjectRevisionInfo getProjectRevisionInfo(int projectId) const;
+    bool markProjectSaved(int projectId, qint64 *savedRevision = nullptr);
     ProjectCommandRecord getProjectCommand(int projectId, const QString &commandId) const;
     QList<ProjectEventRecord> getProjectEventsAfter(int projectId,
                                                     qint64 revision,

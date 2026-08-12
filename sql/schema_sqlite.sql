@@ -56,8 +56,10 @@ CREATE TABLE IF NOT EXISTS tupitube_project (
     -- Server-authoritative collaboration state.
     -- current_revision advances after each durably committed project command.
     -- snapshot_revision identifies the revision represented by the current .tup snapshot.
+    -- saved_revision identifies the latest revision explicitly saved by a user.
     current_revision INTEGER NOT NULL DEFAULT 0 CHECK (current_revision >= 0),
     snapshot_revision INTEGER NOT NULL DEFAULT 0 CHECK (snapshot_revision >= 0),
+    saved_revision INTEGER NOT NULL DEFAULT 0 CHECK (saved_revision >= 0),
     snapshot_checksum TEXT, -- Optional checksum of the durable .tup snapshot
     snapshot_updated_at DATETIME,
 
