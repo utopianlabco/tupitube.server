@@ -123,6 +123,7 @@ public:
     ProjectRevisionInfo getProjectRevisionInfo(int projectId) const;
     bool markProjectSaved(int projectId, qint64 *savedRevision = nullptr);
     ProjectCommandRecord getProjectCommand(int projectId, const QString &commandId) const;
+    ProjectEventRecord getProjectEventByCommand(int projectId, const QString &commandId) const;
     QList<ProjectEventRecord> getProjectEventsAfter(int projectId,
                                                     qint64 revision,
                                                     int eventIndex,

@@ -1991,6 +1991,47 @@ DatabaseHandler::ProjectCommandRecord DatabaseHandler::getProjectCommand(
     return record;
 }
 
+DatabaseHandler::ProjectEventRecord DatabaseHandler::getProjectEventByCommand(
+    int projectId, const QString &commandId) const
+{
+    ProjectEventRecord event;
+
+    const QString normalizedCommandId = commandId.trimmed();
+    if (projectId <= 0 || normalizedCommandId.isEmpty())
+        return event;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    QSqlQuery query(connection);
+    query.prepare("SELECT event_uuid, project_id, command_id, revision, event_index, "
+                  "event_type, payload, created_at "
+                  "FROM tupitube_project_event "
+                  "WHERE project_id = ? AND command_id = ? "
+                  "ORDER BY revision DESC, event_index DESC LIMIT 1");
+    query.addBindValue(projectId);
+    query.addBindValue(normalizedCommandId);
+
+    if (!query.exec()) {
+#ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::getProjectEventByCommand()] - Error:"
+                   << query.lastError().text();
+#endif
+        return event;
+    }
+
+    if (!query.next())
+        return event;
+
+    event.eventUuid = query.value(0).toString();
+    event.projectId = query.value(1).toInt();
+    event.commandId = query.value(2).toString();
+    event.revision = query.value(3).toLongLong();
+    event.eventIndex = query.value(4).toInt();
+    event.eventType = query.value(5).toString();
+    event.payload = query.value(6).toString();
+    event.createdAt = query.value(7).toString();
+    return event;
+}
+
 QList<DatabaseHandler::ProjectEventRecord> DatabaseHandler::getProjectEventsAfter(
     int projectId, qint64 revision, int eventIndex, int limit) const
 {

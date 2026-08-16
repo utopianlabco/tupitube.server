@@ -79,6 +79,7 @@ private:
         QString eventId;
         QString eventType;
         QString eventPayload;
+        bool hasAuthoritativePayload = false;
         bool duplicate = false;
 
         bool isCommitted() const

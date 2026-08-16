@@ -249,6 +249,21 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             project->setOwner(ownerID.toInt());
             project->setFilename(filename);
 
+            // Loading a legacy project may synthesize persistent object IDs for
+            // native objects whose serialized <object> nodes predate object_id.
+            // Persist that migration before any collaborative snapshot is sent so
+            // every participant receives the same server-authoritative identity.
+            if (!project->save(true)) {
+                qCritical()
+                    << "[ProjectManager::openProject()]"
+                    << "Unable to persist authoritative object identity migration for project:"
+                    << filename;
+                connection->sendNotification(323, QObject::tr("Error while preparing project %1").arg(filename),
+                                             Notification::Error);
+                connection->close();
+                return;
+            }
+
             QString msg = QObject::tr("Student %1 from %2 opened project: %3")
                 .arg(connection->student()->login(), connection->ip(), projectTitle);
             Logger::self()->info(msg);
@@ -1230,6 +1245,16 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                 if (durable.found
                         && durable.status == QStringLiteral("committed")) {
                     result.committedRevision = durable.committedRevision;
+                    const DatabaseHandler::ProjectEventRecord event =
+                        m_dbHandler->getProjectEventByCommand(
+                            dbProjectId, result.commandId);
+                    if (!event.commandId.isEmpty()) {
+                        result.eventId = event.eventUuid;
+                        result.eventType = event.eventType;
+                        result.eventPayload = event.payload;
+                        result.hasAuthoritativePayload =
+                            !event.payload.isEmpty() && event.payload != request;
+                    }
                 }
             }
 
@@ -1251,6 +1276,16 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                     result.errorCode = stored.errorCode;
                     result.message = stored.message;
                     result.committedRevision = stored.committedRevision;
+                    const DatabaseHandler::ProjectEventRecord event =
+                        m_dbHandler->getProjectEventByCommand(
+                            dbProjectId, result.commandId);
+                    if (!event.commandId.isEmpty()) {
+                        result.eventId = event.eventUuid;
+                        result.eventType = event.eventType;
+                        result.eventPayload = event.payload;
+                        result.hasAuthoritativePayload =
+                            !event.payload.isEmpty() && event.payload != request;
+                    }
                     result.duplicate = true;
                 } else if (stored.status == QStringLiteral("rejected")) {
                     result.status = ProjectCommandResult::Rejected;
@@ -1500,6 +1535,16 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             if (stored.status == QStringLiteral("committed")) {
                 result.status = ProjectCommandResult::Committed;
                 result.committedRevision = stored.committedRevision;
+                const DatabaseHandler::ProjectEventRecord event =
+                    m_dbHandler->getProjectEventByCommand(
+                        dbProjectId, result.commandId);
+                if (!event.commandId.isEmpty()) {
+                    result.eventId = event.eventUuid;
+                    result.eventType = event.eventType;
+                    result.eventPayload = event.payload;
+                    result.hasAuthoritativePayload =
+                        !event.payload.isEmpty() && event.payload != request;
+                }
             } else if (stored.status == QStringLiteral("rejected"))
                 result.status = ProjectCommandResult::Rejected;
             else
@@ -1562,7 +1607,10 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     }
 
     result.eventType = command.eventType();
-    result.eventPayload = request;
+    result.hasAuthoritativePayload = command.hasAuthoritativeEventPayload();
+    result.eventPayload = result.hasAuthoritativePayload
+        ? command.authoritativeEventPayload()
+        : request;
     result.eventId = QUuid::createUuid().toString(QUuid::WithoutBraces);
 
     if (result.eventType.isEmpty())
@@ -1714,6 +1762,18 @@ void ProjectManager::sendCommandResult(
                     QStringLiteral("committed_revision"),
                     result.committedRevision);
                 root.setAttribute(QStringLiteral("event_index"), 0);
+                if (!result.eventType.isEmpty())
+                    root.setAttribute(QStringLiteral("event_type"), result.eventType);
+
+                if (result.hasAuthoritativePayload
+                        && !result.eventPayload.isEmpty()) {
+                    QDomElement payload = document.createElement(
+                        QStringLiteral("authoritative_payload"));
+                    payload.appendChild(
+                        document.createTextNode(result.eventPayload));
+                    root.appendChild(payload);
+                }
+
                 xml = document.toString(0);
             }
         }
