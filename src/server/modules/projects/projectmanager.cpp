@@ -67,12 +67,134 @@
 #include "logger.h"
 
 #include <QDir>
+#include <QDomDocument>
 #include <QHash>
 #include <QColor>
 #include <QDebug>
 #include <QCryptographicHash>
 #include <QUuid>
 #include <QSet>
+
+namespace
+{
+    bool extractConversionSourceSnapshot(
+        const QString &payload, QString *snapshot)
+    {
+        if (!snapshot)
+            return false;
+
+        QDomDocument document;
+        if (!document.setContent(payload))
+            return false;
+
+        const QDomNodeList nodes = document.elementsByTagName(
+            QStringLiteral("conversion_source"));
+        if (nodes.count() == 0)
+            return false;
+
+        const QDomElement element = nodes.at(0).toElement();
+        if (element.attribute(QStringLiteral("encoding"))
+                != QStringLiteral("base64")) {
+            return false;
+        }
+
+        const QByteArray decoded = QByteArray::fromBase64(
+            element.text().trimmed().toLatin1());
+        if (decoded.isEmpty())
+            return false;
+
+        *snapshot = QString::fromUtf8(decoded);
+        return !snapshot->trimmed().isEmpty();
+    }
+
+    bool prepareAuthoritativeConvertRestore(
+        TupItemResponse *response,
+        DatabaseHandler *database,
+        int dbProjectId,
+        QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0)
+            return false;
+
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+
+        const bool restoreSource = argument.startsWith(sourcePrefix);
+        const bool restoreTarget = argument.startsWith(targetPrefix);
+        if (!restoreSource && !restoreTarget)
+            return false;
+
+        const QString originalCommandId = argument.mid(
+            restoreSource ? sourcePrefix.length() : targetPrefix.length()).trimmed();
+        if (originalCommandId.isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalCommandId);
+        if (event.commandId.isEmpty()
+                || event.eventType != QStringLiteral("item.converted")
+                || event.payload.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_event_not_found");
+            return true;
+        }
+
+        TupRequestParser eventParser;
+        if (!eventParser.parse(event.payload.trimmed())) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_conversion_event");
+            return true;
+        }
+
+        TupProjectResponse *eventResponse = eventParser.getResponse();
+        if (!eventResponse || eventResponse->getPart() != TupProjectRequest::Item
+                || eventResponse->originalAction() != TupProjectRequest::Convert) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_conversion_event");
+            return true;
+        }
+
+        TupItemResponse *eventItem = static_cast<TupItemResponse *>(eventResponse);
+        if (eventItem->getObjectId().trimmed().isEmpty()
+                || eventItem->getObjectId().trimmed()
+                    != response->getObjectId().trimmed()
+                || eventItem->getSceneIndex() != response->getSceneIndex()
+                || eventItem->getLayerIndex() != response->getLayerIndex()
+                || eventItem->getFrameIndex() != response->getFrameIndex()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_restore_target_mismatch");
+            return true;
+        }
+
+        QString representation;
+        if (restoreSource) {
+            if (!extractConversionSourceSnapshot(event.payload, &representation)) {
+                if (errorCode)
+                    *errorCode = QStringLiteral("conversion_source_snapshot_missing");
+                return true;
+            }
+        } else {
+            representation = QString::fromUtf8(eventResponse->getData());
+            if (representation.trimmed().isEmpty()) {
+                if (errorCode)
+                    *errorCode = QStringLiteral("conversion_target_snapshot_missing");
+                return true;
+            }
+        }
+
+        response->setArg(QStringLiteral("path"));
+        response->setData(representation.toUtf8());
+        response->setExternal(true);
+
+        if (errorCode)
+            errorCode->clear();
+        return true;
+    }
+}
 
 // QString ProjectManager::BROWSER_FINGERPRINT = QString("TupiTube_Media 1.0");
 
@@ -1562,6 +1684,38 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 
         delete response;
         return result;
+    }
+
+    if (response->getPart() == TupProjectRequest::Item
+            && response->originalAction() == TupProjectRequest::Convert) {
+        TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
+        QString restoreError;
+        if (prepareAuthoritativeConvertRestore(
+                itemResponse, m_dbHandler, dbProjectId, &restoreError)
+                && !restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = QObject::tr(
+                "The conversion restore request could not be resolved authoritatively.");
+
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId,
+                result.commandId,
+                QStringLiteral("rejected"),
+                result.errorCode,
+                result.message);
+
+            if (registry) {
+                registry->store(
+                    result.commandId,
+                    CommandResultRegistry::Rejected,
+                    result.errorCode,
+                    result.message);
+            }
+
+            delete response;
+            return result;
+        }
     }
 
     TupCommandExecutor *commandExecutor =
