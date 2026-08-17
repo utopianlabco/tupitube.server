@@ -37,9 +37,14 @@
 #include "tupproject.h"
 #include "tuplayer.h"
 #include "tupframe.h"
+#include "tupscene.h"
+#include "tupgraphicobject.h"
+#include "tupitemconverter.h"
+#include "tupsvg2qt.h"
 #include "genericexportplugin.h"
 #include "tupexportinterface.h"
 #include "tuprequestparser.h"
+#include "tuprequestbuilder.h"
 #include "filemanager.h"
 #include "tupcommandexecutor.h"
 #include "tupprojectcommand.h"
@@ -74,6 +79,8 @@
 #include <QCryptographicHash>
 #include <QUuid>
 #include <QSet>
+#include <QPainterPath>
+#include <QStringList>
 
 namespace
 {
@@ -107,13 +114,153 @@ namespace
         return !snapshot->trimmed().isEmpty();
     }
 
+    QString canonicalXmlElement(const QDomElement &element)
+    {
+        if (element.isNull())
+            return QString();
+
+        QString result = QStringLiteral("<") + element.tagName();
+
+        QStringList attributes;
+        const QDomNamedNodeMap attributeMap = element.attributes();
+        for (int index = 0; index < attributeMap.count(); ++index) {
+            const QDomAttr attribute = attributeMap.item(index).toAttr();
+            attributes.append(attribute.name() + QStringLiteral("=") + attribute.value());
+        }
+        attributes.sort(Qt::CaseSensitive);
+
+        for (const QString &attribute : attributes)
+            result += QStringLiteral("|") + attribute;
+
+        result += QStringLiteral(">");
+
+        QDomNode child = element.firstChild();
+        while (!child.isNull()) {
+            if (child.isElement()) {
+                result += canonicalXmlElement(child.toElement());
+            } else if (child.isText() || child.isCDATASection()) {
+                const QString text = child.nodeValue().trimmed();
+                if (!text.isEmpty())
+                    result += QStringLiteral("#") + text;
+            }
+            child = child.nextSibling();
+        }
+
+        result += QStringLiteral("</") + element.tagName() + QStringLiteral(">");
+        return result;
+    }
+
+    bool representationsEquivalent(const QString &left, const QString &right)
+    {
+        QDomDocument leftDocument;
+        QDomDocument rightDocument;
+        if (!leftDocument.setContent(left) || !rightDocument.setContent(right))
+            return false;
+
+        return canonicalXmlElement(leftDocument.documentElement())
+            == canonicalXmlElement(rightDocument.documentElement());
+    }
+
+    bool pathsEquivalent(const QString &left, const QString &right)
+    {
+        if (left.trimmed().isEmpty() || right.trimmed().isEmpty())
+            return false;
+
+        QPainterPath leftPath;
+        QPainterPath rightPath;
+        TupSvg2Qt::svgpath2qtpath(left, leftPath);
+        TupSvg2Qt::svgpath2qtpath(right, rightPath);
+        return leftPath == rightPath;
+    }
+
+    QString currentPathRoute(TupItemResponse *response, NetProject *project)
+    {
+        if (!response || !project || response->getObjectId().trimmed().isEmpty())
+            return QString();
+
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        TupLayer *layer = scene ? scene->layerAt(response->getLayerIndex()) : nullptr;
+        TupFrame *frame = layer ? layer->frameAt(response->getFrameIndex()) : nullptr;
+        TupGraphicObject *object = frame
+            ? frame->graphicById(response->getObjectId().trimmed())
+            : nullptr;
+        if (!object)
+            return QString();
+
+        QString snapshotError;
+        const QString snapshot = TupItemConverter::representationSnapshot(
+            object, &snapshotError);
+        if (snapshot.trimmed().isEmpty())
+            return QString();
+
+        QDomDocument document;
+        if (!document.setContent(snapshot))
+            return QString();
+
+        const QDomElement root = document.documentElement();
+        if (root.tagName() != QStringLiteral("path"))
+            return QString();
+
+        return root.attribute(QStringLiteral("coords"));
+    }
+
+    QString currentConvertRepresentationPayload(
+        TupItemResponse *response,
+        NetProject *project)
+    {
+        if (!response || !project || response->getObjectId().trimmed().isEmpty())
+            return QString();
+
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        if (!scene)
+            return QString();
+
+        TupLayer *layer = scene->layerAt(response->getLayerIndex());
+        if (!layer)
+            return QString();
+
+        TupFrame *frame = layer->frameAt(response->getFrameIndex());
+        if (!frame)
+            return QString();
+
+        TupGraphicObject *object = frame->graphicById(response->getObjectId().trimmed());
+        if (!object)
+            return QString();
+
+        QString snapshotError;
+        const QString snapshot = TupItemConverter::representationSnapshot(
+            object, &snapshotError);
+        if (snapshot.trimmed().isEmpty())
+            return QString();
+
+        const TupProjectRequest request = TupRequestBuilder::createItemRequest(
+            response->getSceneIndex(),
+            response->getLayerIndex(),
+            response->getFrameIndex(),
+            response->getItemIndex(),
+            response->position(),
+            response->spaceMode(),
+            response->getItemType(),
+            TupProjectRequest::Convert,
+            QStringLiteral("path"),
+            snapshot.toUtf8(),
+            response->getCommandId(),
+            QString(),
+            response->getObjectId());
+
+        return request.getXml();
+    }
+
     bool prepareAuthoritativeConvertRestore(
         TupItemResponse *response,
         DatabaseHandler *database,
         int dbProjectId,
-        QString *errorCode)
+        int studentId,
+        NetProject *project,
+        QString *errorCode,
+        QString *authoritativeCurrentPayload)
     {
-        if (!response || !database || dbProjectId <= 0)
+        if (!response || !database || dbProjectId <= 0 || !project)
             return false;
 
         const QString argument = response->getArg().toString().trimmed();
@@ -125,11 +272,30 @@ namespace
         if (!restoreSource && !restoreTarget)
             return false;
 
+        if (authoritativeCurrentPayload)
+            *authoritativeCurrentPayload = currentConvertRepresentationPayload(response, project);
+
         const QString originalCommandId = argument.mid(
             restoreSource ? sourcePrefix.length() : targetPrefix.length()).trimmed();
         if (originalCommandId.isEmpty()) {
             if (errorCode)
                 *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectCommandRecord originalCommand =
+            database->getProjectCommand(dbProjectId, originalCommandId);
+        if (!originalCommand.found
+                || originalCommand.status != QStringLiteral("committed")) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_event_not_found");
+            return true;
+        }
+
+        if (studentId <= 0 || originalCommand.studentId <= 0
+                || originalCommand.studentId != studentId) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_restore_not_owner");
             return true;
         }
 
@@ -170,21 +336,55 @@ namespace
             return true;
         }
 
-        QString representation;
-        if (restoreSource) {
-            if (!extractConversionSourceSnapshot(event.payload, &representation)) {
-                if (errorCode)
-                    *errorCode = QStringLiteral("conversion_source_snapshot_missing");
-                return true;
-            }
-        } else {
-            representation = QString::fromUtf8(eventResponse->getData());
-            if (representation.trimmed().isEmpty()) {
-                if (errorCode)
-                    *errorCode = QStringLiteral("conversion_target_snapshot_missing");
-                return true;
-            }
+        QString sourceRepresentation;
+        if (!extractConversionSourceSnapshot(event.payload, &sourceRepresentation)) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_source_snapshot_missing");
+            return true;
         }
+
+        const QString targetRepresentation = QString::fromUtf8(eventResponse->getData());
+        if (targetRepresentation.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_target_snapshot_missing");
+            return true;
+        }
+
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        TupLayer *layer = scene ? scene->layerAt(response->getLayerIndex()) : nullptr;
+        TupFrame *frame = layer ? layer->frameAt(response->getFrameIndex()) : nullptr;
+        TupGraphicObject *object = frame
+            ? frame->graphicById(response->getObjectId().trimmed())
+            : nullptr;
+
+        if (!object) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_restore_target_missing");
+            return true;
+        }
+
+        QString snapshotError;
+        const QString currentRepresentation = TupItemConverter::representationSnapshot(
+            object, &snapshotError);
+        if (currentRepresentation.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_restore_snapshot_failed");
+            return true;
+        }
+
+        const QString expectedCurrentRepresentation = restoreSource
+            ? targetRepresentation
+            : sourceRepresentation;
+        if (!representationsEquivalent(
+                currentRepresentation, expectedCurrentRepresentation)) {
+            if (errorCode)
+                *errorCode = QStringLiteral("conversion_restore_conflict");
+            return true;
+        }
+
+        const QString representation = restoreSource
+            ? sourceRepresentation
+            : targetRepresentation;
 
         response->setArg(QStringLiteral("path"));
         response->setData(representation.toUtf8());
@@ -194,6 +394,116 @@ namespace
             errorCode->clear();
         return true;
     }
+
+    bool prepareAuthoritativeEditNodesRestore(
+        TupItemResponse *response,
+        DatabaseHandler *database,
+        int dbProjectId,
+        int studentId,
+        NetProject *project,
+        QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0 || !project)
+            return false;
+
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+        const bool restoreSource = argument.startsWith(sourcePrefix);
+        const bool restoreTarget = argument.startsWith(targetPrefix);
+        if (!restoreSource && !restoreTarget)
+            return false;
+
+        const QString originalCommandId = argument.mid(
+            restoreSource ? sourcePrefix.length() : targetPrefix.length()).trimmed();
+        if (originalCommandId.isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectCommandRecord originalCommand =
+            database->getProjectCommand(dbProjectId, originalCommandId);
+        if (!originalCommand.found || originalCommand.status != QStringLiteral("committed")) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_event_not_found");
+            return true;
+        }
+
+        if (studentId <= 0 || originalCommand.studentId <= 0
+                || originalCommand.studentId != studentId) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_restore_not_owner");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalCommandId);
+        if (event.commandId.isEmpty()
+                || event.eventType != QStringLiteral("item.nodes-edited")
+                || event.payload.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_event_not_found");
+            return true;
+        }
+
+        TupRequestParser eventParser;
+        if (!eventParser.parse(event.payload.trimmed())) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_edit_nodes_event");
+            return true;
+        }
+
+        TupProjectResponse *eventResponse = eventParser.getResponse();
+        if (!eventResponse || eventResponse->getPart() != TupProjectRequest::Item
+                || eventResponse->originalAction() != TupProjectRequest::EditNodes) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_edit_nodes_event");
+            return true;
+        }
+
+        TupItemResponse *eventItem = static_cast<TupItemResponse *>(eventResponse);
+        if (eventItem->getObjectId().trimmed().isEmpty()
+                || eventItem->getObjectId().trimmed() != response->getObjectId().trimmed()
+                || eventItem->getSceneIndex() != response->getSceneIndex()
+                || eventItem->getLayerIndex() != response->getLayerIndex()
+                || eventItem->getFrameIndex() != response->getFrameIndex()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_restore_target_mismatch");
+            return true;
+        }
+
+        const QString sourceRoute = QString::fromUtf8(eventResponse->getData());
+        const QString targetRoute = eventResponse->getArg().toString();
+        if (sourceRoute.trimmed().isEmpty() || targetRoute.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_snapshot_missing");
+            return true;
+        }
+
+        const QString currentRoute = currentPathRoute(response, project);
+        if (currentRoute.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_restore_target_missing");
+            return true;
+        }
+
+        const QString expectedCurrentRoute = restoreSource ? targetRoute : sourceRoute;
+        if (!pathsEquivalent(currentRoute, expectedCurrentRoute)) {
+            if (errorCode)
+                *errorCode = QStringLiteral("edit_nodes_restore_conflict");
+            return true;
+        }
+
+        response->setArg(restoreSource ? sourceRoute : targetRoute);
+        response->setData((restoreSource ? targetRoute : sourceRoute).toUtf8());
+        response->setExternal(true);
+
+        if (errorCode)
+            errorCode->clear();
+        return true;
+    }
+
 }
 
 // QString ProjectManager::BROWSER_FINGERPRINT = QString("TupiTube_Media 1.0");
@@ -1342,6 +1652,39 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 
     const int dbProjectId = m_dbHandler->getProjectIdFromFilename(projectID);
 
+    const auto attachRejectedConvertRestorePayload =
+        [&](ProjectCommandResult *candidate) {
+            if (!candidate
+                    || candidate->status != ProjectCommandResult::Rejected
+                    || !candidate->errorCode.startsWith(
+                        QStringLiteral("conversion_restore_"))) {
+                return;
+            }
+
+            TupRequestParser restoreParser;
+            if (!restoreParser.parse(request))
+                return;
+
+            TupProjectResponse *restoreResponse = restoreParser.getResponse();
+            if (!restoreResponse
+                    || restoreResponse->getPart() != TupProjectRequest::Item
+                    || restoreResponse->originalAction() != TupProjectRequest::Convert) {
+                return;
+            }
+
+            NetProject *currentProject = m_openedProjects.value(projectID);
+            if (!currentProject)
+                return;
+
+            const QString payload = currentConvertRepresentationPayload(
+                static_cast<TupItemResponse *>(restoreResponse), currentProject);
+            if (payload.isEmpty())
+                return;
+
+            candidate->hasAuthoritativePayload = true;
+            candidate->eventPayload = payload;
+        };
+
     CommandResultRegistry *registry =
         m_commandResultRegistries.value(projectID, nullptr);
 
@@ -1380,6 +1723,7 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                 }
             }
 
+            attachRejectedConvertRestorePayload(&result);
 #ifdef TUP_DEBUG
             qWarning()
                 << "[ProjectManager::handleProjectRequest()]"
@@ -1438,6 +1782,7 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                         result.message);
                 }
 
+                attachRejectedConvertRestorePayload(&result);
 #ifdef TUP_DEBUG
                 qWarning()
                     << "[ProjectManager::handleProjectRequest()]"
@@ -1682,6 +2027,7 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                 "The command could not be registered in persistent storage.");
         }
 
+        attachRejectedConvertRestorePayload(&result);
         delete response;
         return result;
     }
@@ -1690,13 +2036,59 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             && response->originalAction() == TupProjectRequest::Convert) {
         TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
         QString restoreError;
+        QString authoritativeCurrentPayload;
         if (prepareAuthoritativeConvertRestore(
-                itemResponse, m_dbHandler, dbProjectId, &restoreError)
+                itemResponse, m_dbHandler, dbProjectId, studentId, project,
+                &restoreError, &authoritativeCurrentPayload)
                 && !restoreError.isEmpty()) {
             result.status = ProjectCommandResult::Rejected;
             result.errorCode = restoreError;
-            result.message = QObject::tr(
-                "The conversion restore request could not be resolved authoritatively.");
+            result.message = restoreError == QStringLiteral("conversion_restore_not_owner")
+                ? QObject::tr("Only the author of the original conversion can undo or redo it.")
+                : (restoreError == QStringLiteral("conversion_restore_conflict")
+                    ? QObject::tr("The object changed after the conversion, so this undo or redo is no longer safe.")
+                    : QObject::tr(
+                        "The conversion restore request could not be resolved authoritatively."));
+            result.hasAuthoritativePayload = !authoritativeCurrentPayload.isEmpty();
+            result.eventPayload = authoritativeCurrentPayload;
+
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId,
+                result.commandId,
+                QStringLiteral("rejected"),
+                result.errorCode,
+                result.message);
+
+            if (registry) {
+                registry->store(
+                    result.commandId,
+                    CommandResultRegistry::Rejected,
+                    result.errorCode,
+                    result.message);
+            }
+
+            delete response;
+            return result;
+        }
+    }
+
+    bool authoritativeEditNodesRestore = false;
+    if (response->getPart() == TupProjectRequest::Item
+            && response->originalAction() == TupProjectRequest::EditNodes) {
+        TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
+        QString restoreError;
+        authoritativeEditNodesRestore = prepareAuthoritativeEditNodesRestore(
+            itemResponse, m_dbHandler, dbProjectId, studentId, project,
+            &restoreError);
+        if (authoritativeEditNodesRestore && !restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = restoreError == QStringLiteral("edit_nodes_restore_not_owner")
+                ? QObject::tr("Only the author of the original node edit can undo or redo it.")
+                : (restoreError == QStringLiteral("edit_nodes_restore_conflict")
+                    ? QObject::tr("The path changed after this node edit, so this undo or redo is no longer safe.")
+                    : QObject::tr(
+                        "The node-edit restore request could not be resolved authoritatively."));
 
             m_dbHandler->updateProjectCommandResult(
                 dbProjectId,
@@ -1765,6 +2157,12 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     result.eventPayload = result.hasAuthoritativePayload
         ? command.authoritativeEventPayload()
         : request;
+    if (authoritativeEditNodesRestore) {
+        const TupProjectRequest authoritativeRequest =
+            TupRequestBuilder::fromResponse(response, true);
+        result.eventPayload = authoritativeRequest.getXml();
+        result.hasAuthoritativePayload = !result.eventPayload.isEmpty();
+    }
     result.eventId = QUuid::createUuid().toString(QUuid::WithoutBraces);
 
     if (result.eventType.isEmpty())
@@ -1906,18 +2304,21 @@ void ProjectManager::sendCommandResult(
 
     QString xml = package.toString(0);
 
-    if (result.isCommitted() && result.committedRevision > 0) {
+    if ((result.isCommitted() && result.committedRevision > 0)
+            || (result.hasAuthoritativePayload && !result.eventPayload.isEmpty())) {
         QDomDocument document;
         if (document.setContent(xml)) {
             QDomElement root = document.documentElement();
             if (!root.isNull()
                     && root.tagName() == QStringLiteral("command_result")) {
-                root.setAttribute(
-                    QStringLiteral("committed_revision"),
-                    result.committedRevision);
-                root.setAttribute(QStringLiteral("event_index"), 0);
-                if (!result.eventType.isEmpty())
-                    root.setAttribute(QStringLiteral("event_type"), result.eventType);
+                if (result.isCommitted() && result.committedRevision > 0) {
+                    root.setAttribute(
+                        QStringLiteral("committed_revision"),
+                        result.committedRevision);
+                    root.setAttribute(QStringLiteral("event_index"), 0);
+                    if (!result.eventType.isEmpty())
+                        root.setAttribute(QStringLiteral("event_type"), result.eventType);
+                }
 
                 if (result.hasAuthoritativePayload
                         && !result.eventPayload.isEmpty()) {
