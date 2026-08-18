@@ -40,6 +40,7 @@
 #include "tupscene.h"
 #include "tupgraphicobject.h"
 #include "tupitemconverter.h"
+#include "tupserializer.h"
 #include "tupsvg2qt.h"
 #include "genericexportplugin.h"
 #include "tupexportinterface.h"
@@ -501,6 +502,115 @@ namespace
 
         if (errorCode)
             errorCode->clear();
+        return true;
+    }
+
+    QString currentTransformProperties(TupItemResponse *response, NetProject *project)
+    {
+        if (!response || !project || response->getObjectId().trimmed().isEmpty())
+            return QString();
+
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        TupLayer *layer = scene ? scene->layerAt(response->getLayerIndex()) : nullptr;
+        TupFrame *frame = layer ? layer->frameAt(response->getFrameIndex()) : nullptr;
+        TupGraphicObject *object = frame
+            ? frame->graphicById(response->getObjectId().trimmed())
+            : nullptr;
+        if (!object || !object->item())
+            return QString();
+
+        QDomDocument document;
+        document.appendChild(TupSerializer::properties(object->item(), document));
+        return document.toString().trimmed();
+    }
+
+    bool prepareAuthoritativeTransformRestore(
+        TupItemResponse *response, DatabaseHandler *database, int dbProjectId,
+        int studentId, NetProject *project, QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0 || !project)
+            return false;
+
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+        const bool restoreSource = argument.startsWith(sourcePrefix);
+        const bool restoreTarget = argument.startsWith(targetPrefix);
+        if (!restoreSource && !restoreTarget)
+            return false;
+
+        const QString originalCommandId = argument.mid(
+            restoreSource ? sourcePrefix.length() : targetPrefix.length()).trimmed();
+        if (originalCommandId.isEmpty()) {
+            if (errorCode) *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectCommandRecord originalCommand =
+            database->getProjectCommand(dbProjectId, originalCommandId);
+        if (!originalCommand.found || originalCommand.status != QStringLiteral("committed")) {
+            if (errorCode) *errorCode = QStringLiteral("transform_event_not_found");
+            return true;
+        }
+        if (studentId <= 0 || originalCommand.studentId <= 0
+                || originalCommand.studentId != studentId) {
+            if (errorCode) *errorCode = QStringLiteral("transform_restore_not_owner");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalCommandId);
+        if (event.commandId.isEmpty() || event.eventType != QStringLiteral("item.transformed")
+                || event.payload.trimmed().isEmpty()) {
+            if (errorCode) *errorCode = QStringLiteral("transform_event_not_found");
+            return true;
+        }
+
+        TupRequestParser eventParser;
+        if (!eventParser.parse(event.payload.trimmed())) {
+            if (errorCode) *errorCode = QStringLiteral("invalid_transform_event");
+            return true;
+        }
+        TupProjectResponse *eventResponse = eventParser.getResponse();
+        if (!eventResponse || eventResponse->getPart() != TupProjectRequest::Item
+                || eventResponse->originalAction() != TupProjectRequest::Transform) {
+            if (errorCode) *errorCode = QStringLiteral("invalid_transform_event");
+            return true;
+        }
+
+        TupItemResponse *eventItem = static_cast<TupItemResponse *>(eventResponse);
+        if (eventItem->getObjectId().trimmed().isEmpty()
+                || eventItem->getObjectId().trimmed() != response->getObjectId().trimmed()
+                || eventItem->getSceneIndex() != response->getSceneIndex()
+                || eventItem->getLayerIndex() != response->getLayerIndex()
+                || eventItem->getFrameIndex() != response->getFrameIndex()) {
+            if (errorCode) *errorCode = QStringLiteral("transform_restore_target_mismatch");
+            return true;
+        }
+
+        const QString sourceProperties = QString::fromUtf8(eventResponse->getData()).trimmed();
+        const QString targetProperties = eventResponse->getArg().toString().trimmed();
+        if (sourceProperties.isEmpty() || targetProperties.isEmpty()) {
+            if (errorCode) *errorCode = QStringLiteral("transform_snapshot_missing");
+            return true;
+        }
+
+        const QString currentProperties = currentTransformProperties(response, project);
+        if (currentProperties.isEmpty()) {
+            if (errorCode) *errorCode = QStringLiteral("transform_restore_target_missing");
+            return true;
+        }
+
+        const QString expectedCurrent = restoreSource ? targetProperties : sourceProperties;
+        if (!representationsEquivalent(currentProperties, expectedCurrent)) {
+            if (errorCode) *errorCode = QStringLiteral("transform_restore_conflict");
+            return true;
+        }
+
+        response->setArg(restoreSource ? sourceProperties : targetProperties);
+        response->setData(expectedCurrent.toUtf8());
+        response->setExternal(true);
+        if (errorCode) errorCode->clear();
         return true;
     }
 
@@ -2107,6 +2217,58 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 
             delete response;
             return result;
+        }
+    }
+
+    if (response->getPart() == TupProjectRequest::Item
+            && response->originalAction() == TupProjectRequest::Transform) {
+        TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
+        const bool authoritativeTransformCandidate =
+            itemResponse->spaceMode() == TupProject::FRAMES_MODE
+            && itemResponse->getItemType() != TupLibraryObject::Svg
+            && !itemResponse->getObjectId().trimmed().isEmpty();
+        if (authoritativeTransformCandidate) {
+            QString restoreError;
+        const bool isRestore = prepareAuthoritativeTransformRestore(
+            itemResponse, m_dbHandler, dbProjectId, studentId, project, &restoreError);
+        if (isRestore && !restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = restoreError == QStringLiteral("transform_restore_not_owner")
+                ? QObject::tr("Only the author of the original transform can undo or redo it.")
+                : (restoreError == QStringLiteral("transform_restore_conflict")
+                    ? QObject::tr("The object changed after the transform, so this undo or redo is no longer safe.")
+                    : QObject::tr("The transform restore request could not be resolved authoritatively."));
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId, result.commandId, QStringLiteral("rejected"),
+                result.errorCode, result.message);
+            if (registry) {
+                registry->store(result.commandId, CommandResultRegistry::Rejected,
+                                result.errorCode, result.message);
+            }
+            delete response;
+            return result;
+        }
+
+        if (!isRestore) {
+            const QString sourceProperties = currentTransformProperties(itemResponse, project);
+            if (sourceProperties.isEmpty()) {
+                result.status = ProjectCommandResult::Rejected;
+                result.errorCode = QStringLiteral("transform_source_snapshot_failed");
+                result.message = QObject::tr(
+                    "The transform source state could not be captured authoritatively.");
+                m_dbHandler->updateProjectCommandResult(
+                    dbProjectId, result.commandId, QStringLiteral("rejected"),
+                    result.errorCode, result.message);
+                if (registry) {
+                    registry->store(result.commandId, CommandResultRegistry::Rejected,
+                                    result.errorCode, result.message);
+                }
+                delete response;
+                return result;
+            }
+            response->setData(sourceProperties.toUtf8());
+        }
         }
     }
 
