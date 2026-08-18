@@ -38,6 +38,7 @@
 #include "tuplayer.h"
 #include "tupframe.h"
 #include "tupscene.h"
+#include "tupbackground.h"
 #include "tupgraphicobject.h"
 #include "tupitemconverter.h"
 #include "tupserializer.h"
@@ -85,6 +86,34 @@
 
 namespace
 {
+    TupFrame *conversionFrameForResponse(TupItemResponse *response, NetProject *project)
+    {
+        if (!response || !project)
+            return nullptr;
+
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        if (!scene)
+            return nullptr;
+
+        if (response->spaceMode() == TupProject::FRAMES_MODE) {
+            TupLayer *layer = scene->layerAt(response->getLayerIndex());
+            return layer ? layer->frameAt(response->getFrameIndex()) : nullptr;
+        }
+
+        TupBackground *background = scene->sceneBackground();
+        if (!background)
+            return nullptr;
+
+        if (response->spaceMode() == TupProject::VECTOR_STATIC_BG_MODE)
+            return background->vectorStaticFrame();
+        if (response->spaceMode() == TupProject::VECTOR_FG_MODE)
+            return background->vectorForegroundFrame();
+        if (response->spaceMode() == TupProject::VECTOR_DYNAMIC_BG_MODE)
+            return background->vectorDynamicFrame();
+
+        return nullptr;
+    }
+
     bool extractConversionSourceSnapshot(
         const QString &payload, QString *snapshot)
     {
@@ -212,15 +241,7 @@ namespace
         if (!response || !project || response->getObjectId().trimmed().isEmpty())
             return QString();
 
-        TupScene *scene = project->sceneAt(response->getSceneIndex());
-        if (!scene)
-            return QString();
-
-        TupLayer *layer = scene->layerAt(response->getLayerIndex());
-        if (!layer)
-            return QString();
-
-        TupFrame *frame = layer->frameAt(response->getFrameIndex());
+        TupFrame *frame = conversionFrameForResponse(response, project);
         if (!frame)
             return QString();
 
@@ -351,9 +372,7 @@ namespace
             return true;
         }
 
-        TupScene *scene = project->sceneAt(response->getSceneIndex());
-        TupLayer *layer = scene ? scene->layerAt(response->getLayerIndex()) : nullptr;
-        TupFrame *frame = layer ? layer->frameAt(response->getFrameIndex()) : nullptr;
+        TupFrame *frame = conversionFrameForResponse(response, project);
         TupGraphicObject *object = frame
             ? frame->graphicById(response->getObjectId().trimmed())
             : nullptr;
