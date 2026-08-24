@@ -143,9 +143,11 @@ public:
                                     const QString &errorCode = QString(),
                                     const QString &message = QString());
 
-    // Call only after the corresponding .tup snapshot has been saved successfully.
-    // The command result, project revision, and authoritative event are committed atomically in SQLite.
+    // Call only after the corresponding revision-specific pending snapshot has been
+    // saved successfully. The command result, project revision, snapshot checksum,
+    // and authoritative event are committed atomically in SQLite.
     bool finalizeCommittedProjectCommand(int projectId, const QString &commandId,
+                                         qint64 stagedRevision,
                                          qint64 *committedRevision,
                                          const QString &eventUuid,
                                          const QString &eventType,

@@ -39,10 +39,12 @@
 #include "talgorithm.h"
 #include "tapplicationproperties.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
 #include <QDebug>
 #include <QDomDocument>
 #include <QTextStream>
@@ -79,6 +81,72 @@ QString projectDirectoryPath(const QString &studentPath, const QString &filename
 QString projectPackagePath(const QString &studentPath, const QString &filename)
 {
     return QDir(projectDirectoryPath(studentPath, filename)).filePath(filename + ".tup");
+}
+
+
+QString pendingProjectPackagePath(const QString &studentPath, const QString &filename, qint64 revision)
+{
+    return QDir(projectDirectoryPath(studentPath, filename)).filePath(
+        filename + ".pending-r" + QString::number(revision) + ".tup");
+}
+
+QString fileSha256(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly))
+        return QString();
+
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file))
+        return QString();
+
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+bool copyFileAtomically(const QString &sourcePath, const QString &destinationPath)
+{
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::ReadOnly))
+        return false;
+
+    QSaveFile destination(destinationPath);
+    destination.setDirectWriteFallback(false);
+    if (!destination.open(QIODevice::WriteOnly))
+        return false;
+
+    const qint64 bufferSize = 1024 * 1024;
+    while (!source.atEnd()) {
+        const QByteArray chunk = source.read(bufferSize);
+        if (chunk.isEmpty() && source.error() != QFile::NoError) {
+            destination.cancelWriting();
+            return false;
+        }
+
+        if (destination.write(chunk) != chunk.size()) {
+            destination.cancelWriting();
+            return false;
+        }
+    }
+
+    return destination.commit();
+}
+
+bool removePendingSnapshotsExcept(const QString &studentPath, const QString &filename,
+                                  const QString &keepPath = QString())
+{
+    QDir projectDir(projectDirectoryPath(studentPath, filename));
+    const QString pattern = filename + ".pending-r*.tup";
+    const QStringList pendingFiles = projectDir.entryList(QStringList() << pattern, QDir::Files, QDir::Name);
+
+    for (const QString &pendingFile : pendingFiles) {
+        const QString pendingPath = projectDir.filePath(pendingFile);
+        if (!keepPath.isEmpty() && QFileInfo(pendingPath) == QFileInfo(keepPath))
+            continue;
+        if (!QFile::remove(pendingPath))
+            return false;
+    }
+
+    return true;
 }
 
 QString cacheRootPathFor(const QString &uid)
@@ -156,15 +224,25 @@ bool saveProjectFiles(const QString &cachePath, NetProject *project)
         return false;
 
     int index = 0;
+    QSet<QString> expectedSceneFiles;
     foreach (TupScene *scene, project->getScenes()) {
         QDomDocument sceneDoc;
         sceneDoc.appendChild(scene->toXml(sceneDoc));
 
-        const QString scenePath = cacheDir.filePath("scene" + QString::number(index) + ".tps");
+        const QString sceneFileName = "scene" + QString::number(index) + ".tps";
+        const QString scenePath = cacheDir.filePath(sceneFileName);
+        expectedSceneFiles.insert(sceneFileName);
         if (!writeXmlFile(scenePath, sceneDoc))
             return false;
 
         index += 1;
+    }
+
+    const QStringList existingSceneFiles = cacheDir.entryList(QStringList() << "scene*.tps",
+                                                               QDir::Files, QDir::Name);
+    for (const QString &sceneFile : existingSceneFiles) {
+        if (!expectedSceneFiles.contains(sceneFile) && !QFile::remove(cacheDir.filePath(sceneFile)))
+            return false;
     }
 
     QDomDocument libraryDoc;
@@ -255,6 +333,152 @@ bool FileManager::save(const QString &filename, NetProject *project, int uid)
     }
 
     return isOk;
+}
+
+bool FileManager::savePendingSnapshot(const QString &filename, NetProject *project, int uid,
+                                      qint64 revision, QString *checksum)
+{
+    if (!project || revision <= 0)
+        return false;
+
+    const QString uidText = QString::number(uid);
+    const QString studentPath = studentPathFor(uid);
+    if (!createStudentDirectories(studentPath))
+        return false;
+
+    const QString projectPath = projectDirectoryPath(studentPath, filename);
+    QDir projectDir(projectPath);
+    if (!projectDir.exists() && !projectDir.mkpath(projectDir.path()))
+        return false;
+
+    const QString cachePath = cacheProjectPathFor(uidText, filename);
+    QDir cacheDir(cachePath);
+    if (!cacheDir.exists() && !cacheDir.mkpath(cacheDir.path()))
+        return false;
+
+    if (!saveProjectFiles(cacheDir.path(), project))
+        return false;
+
+    const QString pendingPath = pendingProjectPackagePath(studentPath, filename, revision);
+    PackageHandler packageHandler;
+    if (!packageHandler.makePackage(cacheDir.path(), pendingPath, uidText))
+        return false;
+
+    const QString digest = fileSha256(pendingPath);
+    if (digest.isEmpty()) {
+        QFile::remove(pendingPath);
+        return false;
+    }
+
+    if (checksum)
+        *checksum = digest;
+
+#ifdef TUP_DEBUG
+    qWarning() << "[FileManager::savePendingSnapshot()] - Durable pending snapshot ->"
+               << pendingPath << "Revision:" << revision << "SHA-256:" << digest;
+#endif
+    return true;
+}
+
+bool FileManager::promotePendingSnapshot(const QString &filename, int uid, qint64 revision,
+                                         const QString &expectedChecksum)
+{
+    if (revision <= 0)
+        return false;
+
+    const QString studentPath = studentPathFor(uid);
+    const QString pendingPath = pendingProjectPackagePath(studentPath, filename, revision);
+    const QString activePath = projectPackagePath(studentPath, filename);
+
+    if (!QFileInfo::exists(pendingPath))
+        return false;
+
+    if (!expectedChecksum.isEmpty() && fileSha256(pendingPath) != expectedChecksum) {
+#ifdef TUP_DEBUG
+        qWarning() << "[FileManager::promotePendingSnapshot()] - Pending snapshot checksum mismatch ->"
+                   << pendingPath;
+#endif
+        return false;
+    }
+
+    if (!copyFileAtomically(pendingPath, activePath))
+        return false;
+
+    if (!expectedChecksum.isEmpty() && fileSha256(activePath) != expectedChecksum)
+        return false;
+
+    if (!removePendingSnapshotsExcept(studentPath, filename)) {
+#ifdef TUP_DEBUG
+        qWarning() << "[FileManager::promotePendingSnapshot()] - Unable to remove one or more stale pending snapshots.";
+#endif
+    }
+
+    return true;
+}
+
+bool FileManager::discardPendingSnapshot(const QString &filename, int uid, qint64 revision)
+{
+    if (revision <= 0)
+        return false;
+
+    const QString pendingPath = pendingProjectPackagePath(studentPathFor(uid), filename, revision);
+    return !QFileInfo::exists(pendingPath) || QFile::remove(pendingPath);
+}
+
+bool FileManager::reconcileAuthoritativeSnapshot(const QString &filename, const QString &uid,
+                                                 qint64 revision, const QString &expectedChecksum)
+{
+    if (revision < 0)
+        return false;
+
+    const QString studentPath = studentPathFor(uid);
+    const QString activePath = projectPackagePath(studentPath, filename);
+    const QString pendingPath = pendingProjectPackagePath(studentPath, filename, revision);
+
+    if (revision > 0 && QFileInfo::exists(pendingPath)) {
+        if (expectedChecksum.isEmpty() || fileSha256(pendingPath) != expectedChecksum) {
+            qCritical() << "[FileManager::reconcileAuthoritativeSnapshot()]"
+                        << "Committed pending snapshot checksum mismatch. Project:" << filename
+                        << "Revision:" << revision;
+            return false;
+        }
+
+        if (!copyFileAtomically(pendingPath, activePath)) {
+            qCritical() << "[FileManager::reconcileAuthoritativeSnapshot()]"
+                        << "Unable to promote committed pending snapshot. Project:" << filename
+                        << "Revision:" << revision;
+            return false;
+        }
+
+        if (fileSha256(activePath) != expectedChecksum) {
+            qCritical() << "[FileManager::reconcileAuthoritativeSnapshot()]"
+                        << "Promoted snapshot checksum mismatch. Project:" << filename
+                        << "Revision:" << revision;
+            return false;
+        }
+
+#ifdef TUP_DEBUG
+        qWarning() << "[FileManager::reconcileAuthoritativeSnapshot()]"
+                   << "Recovered committed snapshot from pending package. Project:" << filename
+                   << "Revision:" << revision;
+#endif
+    }
+
+    if (!QFileInfo::exists(activePath))
+        return false;
+
+    // A pending package for a revision newer than SQLite's committed revision
+    // belongs to a command that never committed. Once the committed snapshot
+    // is known to be available, those candidates are safe to discard. Cleanup
+    // is best effort; stale candidates never become authoritative without a
+    // matching committed revision/checksum in SQLite.
+    if (!removePendingSnapshotsExcept(studentPath, filename)) {
+#ifdef TUP_DEBUG
+        qWarning() << "[FileManager::reconcileAuthoritativeSnapshot()] - Unable to remove one or more stale pending snapshots.";
+#endif
+    }
+
+    return true;
 }
 
 bool FileManager::load(const QString &filename, NetProject *project, const QString &uid)

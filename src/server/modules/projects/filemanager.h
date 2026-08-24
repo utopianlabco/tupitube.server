@@ -48,6 +48,13 @@ class FileManager : public QObject
         ~FileManager();
 
         bool save(const QString &filename, NetProject *project, int uid);
+        bool savePendingSnapshot(const QString &filename, NetProject *project, int uid,
+                                 qint64 revision, QString *checksum = nullptr);
+        bool promotePendingSnapshot(const QString &filename, int uid, qint64 revision,
+                                    const QString &expectedChecksum = QString());
+        bool discardPendingSnapshot(const QString &filename, int uid, qint64 revision);
+        bool reconcileAuthoritativeSnapshot(const QString &filename, const QString &uid,
+                                            qint64 revision, const QString &expectedChecksum);
         bool load(const QString &filename, NetProject *project, const QString &uid);
 
         // Creates an empty project file on disk with one scene, layer, and frame.

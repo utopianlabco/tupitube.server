@@ -775,6 +775,34 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
         }
 
 
+        const DatabaseHandler::ProjectRevisionInfo revisionInfo =
+            m_dbHandler->getProjectRevisionInfo(projectID.toInt());
+        if (!revisionInfo.found
+                || revisionInfo.currentRevision != revisionInfo.snapshotRevision) {
+            qCritical()
+                << "[ProjectManager::openProject()]"
+                << "Authoritative revision metadata is inconsistent. Project:" << filename
+                << "Current revision:" << revisionInfo.currentRevision
+                << "Snapshot revision:" << revisionInfo.snapshotRevision;
+            connection->sendNotification(323, QObject::tr("Error while recovering project %1").arg(filename),
+                                         Notification::Error);
+            connection->close();
+            return;
+        }
+
+        FileManager recoveryManager;
+        if (!recoveryManager.reconcileAuthoritativeSnapshot(
+                filename, ownerID, revisionInfo.snapshotRevision, revisionInfo.snapshotChecksum)) {
+            qCritical()
+                << "[ProjectManager::openProject()]"
+                << "Unable to reconcile the authoritative server snapshot. Project:" << filename
+                << "Revision:" << revisionInfo.snapshotRevision;
+            connection->sendNotification(323, QObject::tr("Error while recovering project %1").arg(filename),
+                                         Notification::Error);
+            connection->close();
+            return;
+        }
+
         NetProject *project = new NetProject;
         QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                          connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
@@ -2297,7 +2325,6 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     TupProjectCommand command(commandExecutor, response);
     command.redo();
 
-    delete commandExecutor;
     project->resetTimer();
 
     if (!command.succeeded()) {
@@ -2330,6 +2357,7 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                 result.message);
         }
 
+        delete commandExecutor;
         return result;
     }
 
@@ -2350,12 +2378,45 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         result.eventType = QStringLiteral("project.command-committed");
 
     // Domain execution succeeded, but the command is not committed yet.
-    // The updated .tup snapshot must exist before the server acknowledges it.
-    if (!saveProject(projectID, true)) {
+    // Persist it first as a revision-specific pending snapshot. SQLite then
+    // atomically commits the command/event/revision metadata that identifies
+    // that exact snapshot. Only after that commit do we promote the package to
+    // the normal authoritative .tup path.
+    const DatabaseHandler::ProjectRevisionInfo revisionInfo =
+        m_dbHandler->getProjectRevisionInfo(dbProjectId);
+    if (!revisionInfo.found
+            || revisionInfo.currentRevision != revisionInfo.snapshotRevision) {
+        command.undo();
+        delete commandExecutor;
+
+        result.status = ProjectCommandResult::Failed;
+        result.errorCode = QStringLiteral("revision_metadata_inconsistent");
+        result.message = QObject::tr(
+            "The server project revision metadata is inconsistent.");
+
+        m_dbHandler->updateProjectCommandResult(
+            dbProjectId, result.commandId, QStringLiteral("failed"),
+            result.errorCode, result.message);
+        if (registry) {
+            registry->store(result.commandId, CommandResultRegistry::Failed,
+                            result.errorCode, result.message);
+        }
+        return result;
+    }
+
+    const qint64 stagedRevision = revisionInfo.currentRevision + 1;
+    QString snapshotChecksum;
+    FileManager snapshotManager;
+    if (!snapshotManager.savePendingSnapshot(
+            projectID, project, project->owner(), stagedRevision, &snapshotChecksum)) {
+        command.undo();
+        const bool rollbackOk = command.succeeded();
+        delete commandExecutor;
+
         result.status = ProjectCommandResult::Failed;
         result.errorCode = QStringLiteral("persistence_failed");
         result.message = QObject::tr(
-            "The project command executed but the project snapshot could not be persisted.");
+            "The project command executed but its durable snapshot could not be persisted.");
 
         m_dbHandler->updateProjectCommandResult(
             dbProjectId,
@@ -2374,8 +2435,9 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 
         qCritical()
             << "[ProjectManager::handleProjectRequest()]"
-            << "Snapshot persistence failed after domain mutation."
-            << "Command:" << result.commandId;
+            << "Pending snapshot persistence failed after domain mutation."
+            << "Command:" << result.commandId
+            << "Rollback succeeded:" << rollbackOk;
         return result;
     }
 
@@ -2383,14 +2445,21 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     if (!m_dbHandler->finalizeCommittedProjectCommand(
             dbProjectId,
             result.commandId,
+            stagedRevision,
             &committedRevision,
             result.eventId,
             result.eventType,
-            result.eventPayload)) {
+            result.eventPayload,
+            snapshotChecksum)) {
+        snapshotManager.discardPendingSnapshot(projectID, project->owner(), stagedRevision);
+        command.undo();
+        const bool rollbackOk = command.succeeded();
+        delete commandExecutor;
+
         result.status = ProjectCommandResult::Failed;
         result.errorCode = QStringLiteral("commit_metadata_failed");
         result.message = QObject::tr(
-            "The project snapshot was saved, but the command/event metadata could not be committed.");
+            "The project snapshot was staged, but the command/event metadata could not be committed.");
 
         // Best effort: convert the unfinished durable record to a terminal
         // failure so a retry is not silently executed again.
@@ -2411,10 +2480,25 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
 
         qCritical()
             << "[ProjectManager::handleProjectRequest()]"
-            << "Snapshot saved but SQLite commit metadata failed."
-            << "Command:" << result.commandId;
+            << "Pending snapshot staged but SQLite commit metadata failed."
+            << "Command:" << result.commandId
+            << "Rollback succeeded:" << rollbackOk;
         return result;
     }
+
+    if (!snapshotManager.promotePendingSnapshot(
+            projectID, project->owner(), committedRevision, snapshotChecksum)) {
+        // The command is still durably committed: SQLite identifies the exact
+        // revision-specific pending package. Startup reconciliation will
+        // promote it before any client is allowed to open the project.
+        qCritical()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Committed snapshot promotion deferred to startup recovery."
+            << "Command:" << result.commandId
+            << "Revision:" << committedRevision;
+    }
+
+    delete commandExecutor;
 
     result.status = ProjectCommandResult::Committed;
     result.errorCode.clear();

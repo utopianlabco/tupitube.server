@@ -2153,14 +2153,15 @@ bool DatabaseHandler::updateProjectCommandResult(int projectId, const QString &c
 }
 
 bool DatabaseHandler::finalizeCommittedProjectCommand(int projectId, const QString &commandId,
+                                                      qint64 stagedRevision,
                                                       qint64 *committedRevision,
                                                       const QString &eventUuid,
                                                       const QString &eventType,
                                                       const QString &eventPayload,
                                                       const QString &snapshotChecksum)
 {
-    if (projectId <= 0 || commandId.isEmpty() || !committedRevision
-        || eventUuid.isEmpty() || eventType.isEmpty())
+    if (projectId <= 0 || commandId.isEmpty() || stagedRevision <= 0 || !committedRevision
+        || eventUuid.isEmpty() || eventType.isEmpty() || snapshotChecksum.isEmpty())
         return false;
 
     *committedRevision = -1;
@@ -2191,6 +2192,15 @@ bool DatabaseHandler::finalizeCommittedProjectCommand(int projectId, const QStri
     const qint64 currentRevision = revisionQuery.value(0).toLongLong();
     const qint64 nextRevision = currentRevision + 1;
     revisionQuery.finish();
+
+    if (stagedRevision != nextRevision) {
+#ifdef TUP_DEBUG
+        qWarning() << "[DatabaseHandler::finalizeCommittedProjectCommand()] - Staged revision mismatch."
+                   << "Expected:" << nextRevision << "Staged:" << stagedRevision;
+#endif
+        connection.rollback();
+        return false;
+    }
 
     QSqlQuery projectQuery(connection);
     projectQuery.prepare("UPDATE tupitube_project SET current_revision = ?, snapshot_revision = ?, "
