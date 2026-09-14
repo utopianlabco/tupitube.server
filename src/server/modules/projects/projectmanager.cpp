@@ -633,6 +633,147 @@ namespace
         return true;
     }
 
+    bool prepareAuthoritativeRemoveRestore(
+        TupItemResponse *response,
+        DatabaseHandler *database,
+        int dbProjectId,
+        int studentId,
+        NetProject *project,
+        QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0 || !project)
+            return false;
+
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+        const bool restoreSource = argument.startsWith(sourcePrefix);
+        const bool restoreTarget = argument.startsWith(targetPrefix);
+        if (!restoreSource && !restoreTarget)
+            return false;
+
+        if ((restoreSource && response->originalAction() != TupProjectRequest::Add)
+                || (restoreTarget && response->originalAction() != TupProjectRequest::Remove)
+                || response->getItemType() == TupLibraryObject::Svg
+                || response->getObjectId().trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_remove_restore_request");
+            return true;
+        }
+
+        const QString originalCommandId = argument.mid(
+            restoreSource ? sourcePrefix.length() : targetPrefix.length()).trimmed();
+        if (originalCommandId.isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectCommandRecord originalCommand =
+            database->getProjectCommand(dbProjectId, originalCommandId);
+        if (!originalCommand.found
+                || originalCommand.status != QStringLiteral("committed")) {
+            if (errorCode)
+                *errorCode = QStringLiteral("remove_event_not_found");
+            return true;
+        }
+
+        if (studentId <= 0 || originalCommand.studentId <= 0
+                || originalCommand.studentId != studentId) {
+            if (errorCode)
+                *errorCode = QStringLiteral("remove_restore_not_owner");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalCommandId);
+        if (event.commandId.isEmpty()
+                || event.eventType != QStringLiteral("item.removed")
+                || event.payload.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("remove_event_not_found");
+            return true;
+        }
+
+        TupRequestParser eventParser;
+        if (!eventParser.parse(event.payload.trimmed())) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_remove_event");
+            return true;
+        }
+
+        TupProjectResponse *eventResponse = eventParser.getResponse();
+        if (!eventResponse || eventResponse->getPart() != TupProjectRequest::Item
+                || eventResponse->originalAction() != TupProjectRequest::Remove) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_remove_event");
+            return true;
+        }
+
+        TupItemResponse *eventItem = static_cast<TupItemResponse *>(eventResponse);
+        const QString objectId = response->getObjectId().trimmed();
+        if (eventItem->getItemType() == TupLibraryObject::Svg
+                || eventItem->getObjectId().trimmed() != objectId
+                || eventItem->getSceneIndex() != response->getSceneIndex()
+                || eventItem->getLayerIndex() != response->getLayerIndex()
+                || eventItem->getFrameIndex() != response->getFrameIndex()
+                || eventItem->spaceMode() != response->spaceMode()
+                || eventItem->getItemType() != response->getItemType()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("remove_restore_target_mismatch");
+            return true;
+        }
+
+        const QString removedSnapshot = eventResponse->getArg().toString().trimmed();
+        if (removedSnapshot.isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("remove_snapshot_missing");
+            return true;
+        }
+
+        TupFrame *frame = conversionFrameForResponse(response, project);
+        if (!frame) {
+            if (errorCode)
+                *errorCode = QStringLiteral("remove_restore_target_missing");
+            return true;
+        }
+
+        TupGraphicObject *currentObject = frame->graphicById(objectId);
+        if (restoreSource) {
+            if (currentObject) {
+                if (errorCode)
+                    *errorCode = QStringLiteral("remove_restore_conflict");
+                return true;
+            }
+
+            response->setArg(removedSnapshot);
+            response->setData(eventResponse->getData());
+            response->setExternal(true);
+        } else {
+            if (!currentObject) {
+                if (errorCode)
+                    *errorCode = QStringLiteral("remove_restore_conflict");
+                return true;
+            }
+
+            const QString currentSnapshot = currentObject->toString().trimmed();
+            if (currentSnapshot.isEmpty()
+                    || !representationsEquivalent(currentSnapshot, removedSnapshot)) {
+                if (errorCode)
+                    *errorCode = QStringLiteral("remove_restore_conflict");
+                return true;
+            }
+
+            response->setArg(removedSnapshot);
+            response->setData(eventResponse->getData());
+            response->setExternal(true);
+        }
+
+        if (errorCode)
+            errorCode->clear();
+        return true;
+    }
+
 }
 
 // QString ProjectManager::BROWSER_FINGERPRINT = QString("TupiTube_Media 1.0");
@@ -1777,6 +1918,8 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
     QString clientId;
     QString commandType;
     qint64 baseRevision = 0;
+    bool hasBaseRevision = false;
+    bool baseRevisionValid = false;
 
     if (requestDocument.setContent(request)) {
         const QDomElement requestRoot = requestDocument.documentElement();
@@ -1790,11 +1933,14 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         commandType = requestRoot.attribute(
             QStringLiteral("command_type")).trimmed();
 
+        hasBaseRevision = requestRoot.hasAttribute(QStringLiteral("base_revision"));
         bool baseRevisionOk = false;
         const qint64 parsedBaseRevision = requestRoot.attribute(
             QStringLiteral("base_revision")).toLongLong(&baseRevisionOk);
-        if (baseRevisionOk && parsedBaseRevision >= 0)
+        if (hasBaseRevision && baseRevisionOk && parsedBaseRevision >= 0) {
             baseRevision = parsedBaseRevision;
+            baseRevisionValid = true;
+        }
     }
 
 #ifdef TUP_DEBUG
@@ -2044,6 +2190,9 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         << "Part:" << response->getPart();
 #endif
 
+    qint64 dependencyCommittedRevision = -1;
+    int dependencyStudentId = -1;
+
     if (!dependencyCommandId.isEmpty()) {
         if (dependencyCommandId == result.commandId) {
             result.status = ProjectCommandResult::Rejected;
@@ -2060,6 +2209,16 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                 dependencyFound = true;
                 dependencyCommitted =
                     dependencyResult.status == CommandResultRegistry::Committed;
+
+                if (dependencyCommitted) {
+                    const DatabaseHandler::ProjectCommandRecord dependencyRecord =
+                        m_dbHandler->getProjectCommand(dbProjectId, dependencyCommandId);
+                    if (dependencyRecord.found
+                            && dependencyRecord.status == QStringLiteral("committed")) {
+                        dependencyCommittedRevision = dependencyRecord.committedRevision;
+                        dependencyStudentId = dependencyRecord.studentId;
+                    }
+                }
             } else {
                 const DatabaseHandler::ProjectCommandRecord dependencyRecord =
                     m_dbHandler->getProjectCommand(dbProjectId, dependencyCommandId);
@@ -2067,6 +2226,10 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                     dependencyFound = true;
                     dependencyCommitted =
                         dependencyRecord.status == QStringLiteral("committed");
+                    if (dependencyCommitted) {
+                        dependencyCommittedRevision = dependencyRecord.committedRevision;
+                        dependencyStudentId = dependencyRecord.studentId;
+                    }
 
                     if (registry && (dependencyRecord.status == QStringLiteral("committed")
                                      || dependencyRecord.status == QStringLiteral("rejected")
@@ -2137,6 +2300,93 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         }
     }
 
+    const DatabaseHandler::ProjectRevisionInfo concurrencyRevisionInfo =
+        m_dbHandler->getProjectRevisionInfo(dbProjectId);
+
+    if (!hasBaseRevision || !baseRevisionValid
+            || !concurrencyRevisionInfo.found
+            || concurrencyRevisionInfo.currentRevision
+                != concurrencyRevisionInfo.snapshotRevision
+            || (!dependencyCommandId.isEmpty()
+                && (dependencyCommittedRevision < 0
+                    || dependencyStudentId != studentId
+                    || baseRevision > dependencyCommittedRevision
+                    || concurrencyRevisionInfo.currentRevision
+                        != dependencyCommittedRevision))
+            || (dependencyCommandId.isEmpty()
+                && baseRevision != concurrencyRevisionInfo.currentRevision)) {
+        result.status = ProjectCommandResult::Rejected;
+
+        if (!hasBaseRevision) {
+            result.errorCode = QStringLiteral("missing_base_revision");
+            result.message = QObject::tr(
+                "The project command does not contain an authoritative base revision.");
+        } else if (!baseRevisionValid) {
+            result.errorCode = QStringLiteral("invalid_base_revision");
+            result.message = QObject::tr(
+                "The project command contains an invalid base revision.");
+        } else if (!concurrencyRevisionInfo.found
+                || concurrencyRevisionInfo.currentRevision
+                    != concurrencyRevisionInfo.snapshotRevision) {
+            result.errorCode = QStringLiteral("revision_metadata_inconsistent");
+            result.message = QObject::tr(
+                "The server project revision metadata is inconsistent.");
+        } else if (!dependencyCommandId.isEmpty()
+                && dependencyStudentId != studentId) {
+            result.errorCode = QStringLiteral("dependency_not_owned");
+            result.message = QObject::tr(
+                "The prerequisite command does not belong to this command stream.");
+        } else {
+            result.errorCode = QStringLiteral("stale_base_revision");
+            result.message = QObject::tr(
+                "The project changed after this command was prepared.");
+        }
+
+        const QByteArray rejectedRequestHash = QCryptographicHash::hash(
+            request.toUtf8(), QCryptographicHash::Sha256).toHex();
+
+        if (m_dbHandler->insertProjectCommand(
+                dbProjectId,
+                result.commandId,
+                studentId,
+                clientId,
+                commandType,
+                baseRevision,
+                dependencyCommandId,
+                QString::fromLatin1(rejectedRequestHash),
+                QStringLiteral("processing"))) {
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId,
+                result.commandId,
+                QStringLiteral("rejected"),
+                result.errorCode,
+                result.message);
+        }
+
+        if (registry) {
+            registry->store(
+                result.commandId,
+                CommandResultRegistry::Rejected,
+                result.errorCode,
+                result.message);
+        }
+
+#ifdef TUP_DEBUG
+        qWarning()
+            << "[ProjectManager::handleProjectRequest()]"
+            << "Optimistic concurrency rejection."
+            << "Command:" << result.commandId
+            << "Base revision:" << baseRevision
+            << "Current revision:" << concurrencyRevisionInfo.currentRevision
+            << "Depends on:" << dependencyCommandId
+            << "Dependency revision:" << dependencyCommittedRevision
+            << "Error:" << result.errorCode;
+#endif
+
+        delete response;
+        return result;
+    }
+
     const QByteArray requestHash = QCryptographicHash::hash(
         request.toUtf8(), QCryptographicHash::Sha256).toHex();
 
@@ -2187,6 +2437,43 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
         attachRejectedConvertRestorePayload(&result);
         delete response;
         return result;
+    }
+
+    if (response->getPart() == TupProjectRequest::Item
+            && (response->originalAction() == TupProjectRequest::Add
+                || response->originalAction() == TupProjectRequest::Remove)) {
+        TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
+        QString restoreError;
+        const bool authoritativeRemoveRestore = prepareAuthoritativeRemoveRestore(
+            itemResponse, m_dbHandler, dbProjectId, studentId, project, &restoreError);
+        if (authoritativeRemoveRestore && !restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = restoreError == QStringLiteral("remove_restore_not_owner")
+                ? QObject::tr("Only the author of the original removal can undo or redo it.")
+                : (restoreError == QStringLiteral("remove_restore_conflict")
+                    ? QObject::tr("The object state changed after the removal, so this undo or redo is no longer safe.")
+                    : QObject::tr(
+                        "The remove restore request could not be resolved authoritatively."));
+
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId,
+                result.commandId,
+                QStringLiteral("rejected"),
+                result.errorCode,
+                result.message);
+
+            if (registry) {
+                registry->store(
+                    result.commandId,
+                    CommandResultRegistry::Rejected,
+                    result.errorCode,
+                    result.message);
+            }
+
+            delete response;
+            return result;
+        }
     }
 
     if (response->getPart() == TupProjectRequest::Item
