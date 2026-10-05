@@ -663,6 +663,163 @@ namespace
         return !state->trimmed().isEmpty();
     }
 
+    bool extractTweenPathPackedState(const QString &payload, QString *state)
+    {
+        if (!state)
+            return false;
+
+        QDomDocument document;
+        if (!document.setContent(payload))
+            return false;
+
+        const QDomNodeList nodes = document.elementsByTagName(
+            QStringLiteral("tween_path_state"));
+        if (nodes.count() == 0)
+            return false;
+
+        const QDomElement element = nodes.at(0).toElement();
+        if (element.attribute(QStringLiteral("encoding"))
+                != QStringLiteral("base64")) {
+            return false;
+        }
+
+        const QByteArray decoded = QByteArray::fromBase64(
+            element.text().trimmed().toLatin1());
+        if (decoded.isEmpty())
+            return false;
+
+        *state = QString::fromUtf8(decoded);
+        return !state->trimmed().isEmpty();
+    }
+
+    bool prepareAuthoritativeUpdateTweenPathRestore(
+        TupItemResponse *response, DatabaseHandler *database, int dbProjectId,
+        int studentId, NetProject *project, QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0 || !project)
+            return false;
+
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+        const bool restoreSource = argument.startsWith(sourcePrefix);
+        const bool restoreTarget = argument.startsWith(targetPrefix);
+        if (!restoreSource && !restoreTarget)
+            return false;
+
+        const QString originalCommandId = argument.mid(
+            restoreSource ? sourcePrefix.length() : targetPrefix.length()).trimmed();
+        if (originalCommandId.isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectCommandRecord originalCommand =
+            database->getProjectCommand(dbProjectId, originalCommandId);
+        if (!originalCommand.found
+                || originalCommand.status != QStringLiteral("committed")) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_event_not_found");
+            return true;
+        }
+
+        if (studentId <= 0 || originalCommand.studentId <= 0
+                || originalCommand.studentId != studentId) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_restore_not_owner");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalCommandId);
+        if (event.commandId.isEmpty()
+                || event.eventType != QStringLiteral("item.tween-path-updated")
+                || event.payload.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_event_not_found");
+            return true;
+        }
+
+        TupRequestParser eventParser;
+        if (!eventParser.parse(event.payload.trimmed())) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_update_tween_path_event");
+            return true;
+        }
+
+        TupProjectResponse *eventResponse = eventParser.getResponse();
+        if (!eventResponse || eventResponse->getPart() != TupProjectRequest::Item
+                || eventResponse->originalAction() != TupProjectRequest::UpdateTweenPath) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_update_tween_path_event");
+            return true;
+        }
+
+        TupItemResponse *eventItem = static_cast<TupItemResponse *>(eventResponse);
+        if (eventItem->getItemType() != TupLibraryObject::Item
+                || eventItem->getObjectId().trimmed().isEmpty()
+                || eventItem->getObjectId().trimmed() != response->getObjectId().trimmed()
+                || eventItem->getSceneIndex() != response->getSceneIndex()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_restore_target_mismatch");
+            return true;
+        }
+
+        QString packedState;
+        if (!extractTweenPathPackedState(event.payload, &packedState)) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_snapshots_missing");
+            return true;
+        }
+
+        QString sourceSnapshot;
+        QString targetSnapshot;
+        if (!TupTweenService::unpackSnapshots(
+                packedState, &sourceSnapshot, &targetSnapshot)) {
+            if (errorCode)
+                *errorCode = QStringLiteral("invalid_update_tween_path_snapshots");
+            return true;
+        }
+
+        const QString expectedCurrent = restoreSource ? targetSnapshot : sourceSnapshot;
+        const QString selectedSnapshot = restoreSource ? sourceSnapshot : targetSnapshot;
+
+        QString snapshotError;
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        const QString currentSnapshot =
+            TupTweenService::currentMotionTweenMemberSnapshot(
+                scene, response->getObjectId(), expectedCurrent, &snapshotError);
+        if (currentSnapshot.trimmed().isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_restore_target_missing");
+            return true;
+        }
+
+        if (!representationsEquivalent(currentSnapshot, expectedCurrent)) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_restore_conflict");
+            return true;
+        }
+
+        const QString transactionState = TupTweenService::packSnapshots(
+            expectedCurrent, selectedSnapshot);
+        if (transactionState.isEmpty()) {
+            if (errorCode)
+                *errorCode = QStringLiteral("update_tween_path_restore_state_failed");
+            return true;
+        }
+
+        response->setArg(eventResponse->getArg().toString());
+        response->setData(selectedSnapshot.toUtf8());
+        response->setState(transactionState);
+        response->setExternal(true);
+
+        if (errorCode)
+            errorCode->clear();
+        return true;
+    }
+
     bool prepareAuthoritativeRebaseTweenRestore(
         TupItemResponse *response, DatabaseHandler *database, int dbProjectId,
         int studentId, NetProject *project, QString *errorCode)
@@ -2760,6 +2917,36 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
             }
             response->setData(sourceProperties.toUtf8());
         }
+        }
+    }
+
+    if (response->getPart() == TupProjectRequest::Item
+            && response->originalAction() == TupProjectRequest::UpdateTweenPath) {
+        TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
+        QString restoreError;
+        const bool authoritativePathRestore = prepareAuthoritativeUpdateTweenPathRestore(
+            itemResponse, m_dbHandler, dbProjectId, studentId, project, &restoreError);
+        if (authoritativePathRestore && !restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = restoreError == QStringLiteral("update_tween_path_restore_not_owner")
+                ? QObject::tr("Only the author of the original Motion path edit can undo or redo it.")
+                : (restoreError == QStringLiteral("update_tween_path_restore_conflict")
+                    ? QObject::tr("The Motion tween changed after this path edit, so this undo or redo is no longer safe.")
+                    : QObject::tr(
+                        "The Motion path restore request could not be resolved authoritatively."));
+
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId, result.commandId, QStringLiteral("rejected"),
+                result.errorCode, result.message);
+            if (registry) {
+                registry->store(
+                    result.commandId, CommandResultRegistry::Rejected,
+                    result.errorCode, result.message);
+            }
+
+            delete response;
+            return result;
         }
     }
 
