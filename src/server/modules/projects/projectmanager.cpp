@@ -192,6 +192,51 @@ namespace
             == canonicalXmlElement(rightDocument.documentElement());
     }
 
+    // Snapshot member tween XML is base64-encoded. Compare its parsed
+    // representation, not its serialization (which may change after reload).
+    // All snapshot identity, position, membership and frame-count fields
+    // continue to be checked by representationsEquivalent().
+    bool motionApplySnapshotsEquivalent(const QString &left, const QString &right)
+    {
+        QDomDocument leftDocument;
+        QDomDocument rightDocument;
+        if (!leftDocument.setContent(left) || !rightDocument.setContent(right))
+            return false;
+
+        const auto normalizeMembers = [](QDomDocument &document) -> bool {
+            QDomElement root = document.documentElement();
+            if (root.tagName() != QStringLiteral("tween_rebase_snapshot"))
+                return false;
+
+            QDomElement member = root.firstChildElement(QStringLiteral("member"));
+            if (member.isNull())
+                return false;
+            while (!member.isNull()) {
+                if (member.attribute(QStringLiteral("present"), QStringLiteral("1"))
+                        != QStringLiteral("0")) {
+                    const QByteArray xml = QByteArray::fromBase64(
+                        member.attribute(QStringLiteral("tween")).toLatin1());
+                    QDomDocument tweenDocument;
+                    if (xml.isEmpty() || !tweenDocument.setContent(xml)
+                            || tweenDocument.documentElement().tagName()
+                                != QStringLiteral("tweening"))
+                        return false;
+                    member.setAttribute(QStringLiteral("tween"),
+                        canonicalXmlElement(tweenDocument.documentElement()));
+                } else if (!member.attribute(QStringLiteral("tween")).isEmpty()) {
+                    // An absent member must not carry stale tween state.
+                    return false;
+                }
+                member = member.nextSiblingElement(QStringLiteral("member"));
+            }
+            return true;
+        };
+
+        return normalizeMembers(leftDocument) && normalizeMembers(rightDocument)
+            && representationsEquivalent(leftDocument.toString(0),
+                                         rightDocument.toString(0));
+    }
+
     bool pathsEquivalent(const QString &left, const QString &right)
     {
         if (left.trimmed().isEmpty() || right.trimmed().isEmpty())
@@ -788,8 +833,8 @@ namespace
         QString snapshotError;
         TupScene *scene = project->sceneAt(response->getSceneIndex());
         const QString currentSnapshot =
-            TupTweenService::currentMotionTweenMemberSnapshot(
-                scene, response->getObjectId(), expectedCurrent, &snapshotError);
+            TupTweenService::currentMotionTweenSnapshot(
+                scene, expectedCurrent, &snapshotError);
         if (currentSnapshot.trimmed().isEmpty()) {
             if (errorCode)
                 *errorCode = QStringLiteral("update_tween_path_restore_target_missing");
@@ -817,6 +862,97 @@ namespace
 
         if (errorCode)
             errorCode->clear();
+        return true;
+    }
+
+    bool prepareAuthoritativeApplyMotionTweenRestore(
+        TupItemResponse *response, DatabaseHandler *database, int dbProjectId,
+        int studentId, NetProject *project, QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0 || !project)
+            return false;
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+        const bool undo = argument.startsWith(sourcePrefix);
+        const bool redo = argument.startsWith(targetPrefix);
+        if (!undo && !redo)
+            return false;
+        const QString originalId = argument.mid(
+            undo ? sourcePrefix.length() : targetPrefix.length()).trimmed();
+        if (originalId.isEmpty()) {
+            *errorCode = QStringLiteral("missing_restore_command_id");
+            return true;
+        }
+        const DatabaseHandler::ProjectCommandRecord original =
+            database->getProjectCommand(dbProjectId, originalId);
+        if (!original.found || original.status != QStringLiteral("committed")) {
+            *errorCode = QStringLiteral("apply_motion_event_not_found");
+            return true;
+        }
+        if (studentId <= 0 || original.studentId != studentId) {
+            *errorCode = QStringLiteral("apply_motion_restore_not_owner");
+            return true;
+        }
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalId);
+        if (event.eventType != QStringLiteral("item.motion-tween-applied")
+                || event.payload.trimmed().isEmpty()) {
+            *errorCode = QStringLiteral("apply_motion_event_not_found");
+            return true;
+        }
+        TupRequestParser parser;
+        if (!parser.parse(event.payload)) {
+            *errorCode = QStringLiteral("invalid_apply_motion_event");
+            return true;
+        }
+        TupProjectResponse *originalResponse = parser.getResponse();
+        if (!originalResponse || originalResponse->getPart() != TupProjectRequest::Item
+                || originalResponse->originalAction() != TupProjectRequest::ApplyMotionTween) {
+            *errorCode = QStringLiteral("invalid_apply_motion_event");
+            return true;
+        }
+        TupItemResponse *originalItem = static_cast<TupItemResponse *>(originalResponse);
+        if (originalItem->getObjectId() != response->getObjectId()
+                || originalItem->getSceneIndex() != response->getSceneIndex()) {
+            *errorCode = QStringLiteral("apply_motion_restore_target_mismatch");
+            return true;
+        }
+        QDomDocument eventDocument;
+        if (!eventDocument.setContent(event.payload)) {
+            *errorCode = QStringLiteral("invalid_apply_motion_event");
+            return true;
+        }
+        const QDomElement stateElement = eventDocument.documentElement()
+            .firstChildElement(QStringLiteral("tween_apply_state"));
+        QString source, target;
+        if (stateElement.attribute(QStringLiteral("encoding")) != QStringLiteral("base64")
+                || !TupTweenService::unpackSnapshots(QString::fromUtf8(
+                    QByteArray::fromBase64(stateElement.text().trimmed().toLatin1())),
+                    &source, &target)) {
+            *errorCode = QStringLiteral("apply_motion_snapshots_missing");
+            return true;
+        }
+        const QString expected = undo ? target : source;
+        const QString selected = undo ? source : target;
+        TupScene *scene = project->sceneAt(response->getSceneIndex());
+        QString snapshotError;
+        const QString current = TupTweenService::currentMotionTweenSnapshot(
+            scene, expected, &snapshotError);
+        if (current.isEmpty() || !motionApplySnapshotsEquivalent(current, expected)) {
+            *errorCode = QStringLiteral("apply_motion_restore_conflict");
+            return true;
+        }
+        const QString packed = TupTweenService::packSnapshots(expected, selected);
+        if (packed.isEmpty()) {
+            *errorCode = QStringLiteral("apply_motion_restore_state_failed");
+            return true;
+        }
+        response->setArg(originalItem->getArg().toString());
+        response->setData(selected.toUtf8());
+        response->setState(packed);
+        response->setExternal(true);
+        errorCode->clear();
         return true;
     }
 
@@ -2945,6 +3081,27 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                     result.errorCode, result.message);
             }
 
+            delete response;
+            return result;
+        }
+    }
+
+    if (response->getPart() == TupProjectRequest::Item
+            && response->originalAction() == TupProjectRequest::ApplyMotionTween) {
+        TupItemResponse *itemResponse = static_cast<TupItemResponse *>(response);
+        QString restoreError;
+        if (prepareAuthoritativeApplyMotionTweenRestore(
+                itemResponse, m_dbHandler, dbProjectId, studentId,
+                project, &restoreError) && !restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = QObject::tr("Motion Apply restore cannot be performed safely.");
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId, result.commandId, QStringLiteral("rejected"),
+                result.errorCode, result.message);
+            if (registry)
+                registry->store(result.commandId, CommandResultRegistry::Rejected,
+                                result.errorCode, result.message);
             delete response;
             return result;
         }
