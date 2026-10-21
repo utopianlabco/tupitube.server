@@ -142,6 +142,14 @@ bool ProjectRenderer::loadExportPlugin(const QString &expectedPlugin,
             return false;
         }
 
+        if (targetExporter == &m_videoExporter) {
+            // The FFmpeg plugin already reports percentage progress per frame.
+            // Forward it without coupling the server to the plugin implementation.
+            if (!connect(instance, SIGNAL(progressChanged(int)),
+                         this, SIGNAL(renderProgressChanged(int)))) {
+                qWarning() << "[ProjectRenderer::loadExportPlugin()] - Video progress signal unavailable";
+            }
+        }
         *targetExporter = exporter;
 
         #ifdef TUP_DEBUG
@@ -240,7 +248,7 @@ bool ProjectRenderer::renderImage(TupProject *project,
     }
 
     bool ok = m_imageExporter->exportFrame(frameIndex,
-                                           project->getCurrentBgColor(),
+                                           scene->getBgColor(),
                                            imagePath,
                                            scene,
                                            dimension,

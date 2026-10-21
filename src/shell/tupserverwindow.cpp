@@ -2209,14 +2209,26 @@ void TupServerWindow::playProject()
     }
 
     if (renderNeeded) {
-        QProgressDialog progress(tr("Rendering \"%1\"...").arg(title), QString(), 0, 0, this);
+        QProgressDialog progress(tr("Rendering \"%1\"...").arg(title), QString(), 0, 100, this);
         progress.setWindowModality(Qt::WindowModal);
         progress.setMinimumDuration(0);
+        progress.setValue(0);
+        // Render remains synchronous: process only paint/timer events, not user input.
+        // The exporter emits percentage progress after each rendered frame.
+        QMetaObject::Connection progressConnection =
+            connect(m_projectRenderer, &ProjectRenderer::renderProgressChanged,
+                    &progress, [&progress](int percent) {
+                        progress.setValue(qBound(0, percent, 99));
+                        QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                    });
         progress.show();
-        QApplication::processEvents();
+        QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         QApplication::setOverrideCursor(Qt::WaitCursor);
 
         ProjectRenderer::RenderResult result = m_projectRenderer->renderProject(projectId);
+        disconnect(progressConnection);
+        if (result.success)
+            progress.setValue(100);
         progress.close();
 
         QApplication::restoreOverrideCursor();

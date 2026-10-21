@@ -65,6 +65,8 @@ public:
     void sendToAll(QDomDocument &doc, bool sign = true);
 
     void sendFileToClient(const QString &path);
+    // Thread-safe request: abort the worker-owned TCP socket without flushing.
+    void abortTransportForTest();
 
     void setData(int key, const QVariant &value);
     QVariant data(int key) const;
@@ -114,6 +116,7 @@ private:
     QMutex m_sendMutex;
 
     bool m_shouldClose;
+    bool m_abortTransportForTest = false;
     QMutex m_closeMutex;
 
     QHash<int, QVariant> m_datas;

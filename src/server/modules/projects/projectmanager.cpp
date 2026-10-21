@@ -939,7 +939,8 @@ namespace
         QString snapshotError;
         const QString current = TupTweenService::currentMotionTweenSnapshot(
             scene, expected, &snapshotError);
-        if (current.isEmpty() || !motionApplySnapshotsEquivalent(current, expected)) {
+        if (current.isEmpty()
+                || !motionApplySnapshotsEquivalent(current, expected)) {
             *errorCode = QStringLiteral("apply_motion_restore_conflict");
             return true;
         }
@@ -2042,7 +2043,33 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                 const ProjectCommandResult result =
                     handleProjectRequest(projectID, package, connection->student()->uid());
 
-                sendCommandResult(connection, result);
+                // One-shot transport failure after the authoritative commit but
+                // before the requester receives command_result. Keep the
+                // original durable command ID for reconnect/retry recovery.
+                // Only the intended Client B initial Motion Apply is eligible.
+                bool disconnectAfterMotionCommit = false;
+                if (!m_motionTransportDisconnectUsed
+                        && qgetenv("TUPI_TEST_DISCONNECT_AFTER_MOTION_COMMIT") == "1"
+                        && connection->student()->login() == QStringLiteral("bullet")
+                        && result.isCommitted() && !result.duplicate
+                        && result.eventType == QStringLiteral("item.motion-tween-applied")) {
+                    TupRequestParser hookParser;
+                    if (hookParser.parse(package)) {
+                        TupProjectResponse *hookResponse = hookParser.getResponse();
+                        if (hookResponse
+                                && hookResponse->getPart() == TupProjectRequest::Item
+                                && hookResponse->originalAction()
+                                    == TupProjectRequest::ApplyMotionTween
+                                && !hookResponse->getArg().toString().startsWith(
+                                    QStringLiteral("restore_"))) {
+                            m_motionTransportDisconnectUsed = true;
+                            disconnectAfterMotionCommit = true;
+                        }
+                    }
+                }
+
+                if (!disconnectAfterMotionCommit)
+                    sendCommandResult(connection, result);
 
                 if (result.duplicate) {
 #ifdef TUP_DEBUG
@@ -2070,6 +2097,17 @@ void ProjectManager::handlePackage(PackageBase *const pkg)
                         << "Command:" << result.commandId
                         << "Error:" << result.errorCode;
 #endif
+                }
+
+                if (disconnectAfterMotionCommit) {
+                    qWarning() << "[T13-TRANSPORT-HOOK] ABORT_AFTER_COMMIT"
+                               << "Command:" << result.commandId
+                               << "Revision:" << result.committedRevision
+                               << "Event:" << result.eventId
+                               << "Client:" << connection->student()->login();
+                    // The worker aborts its own QTcpSocket without flushing.
+                    // The committed event has already been sent to peers.
+                    connection->abortTransportForTest();
                 }
             } else {
                 #ifdef TUP_DEBUG

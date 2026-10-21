@@ -70,6 +70,9 @@ public:
     // Thread-safe to call but blocks until rendering is complete.
     RenderResult renderProject(int projectId);
 
+signals:
+    void renderProgressChanged(int percent);
+
 private:
     void loadVideoPlugin();
     void loadImagePlugin();
