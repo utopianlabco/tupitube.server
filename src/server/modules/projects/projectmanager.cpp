@@ -1484,68 +1484,145 @@ void ProjectManager::importProject(Connection *connection, const QString &path, 
         qDebug() << "[ProjectManager::importProject()]";
     #endif
 
-    if (data.size() > 0) {
-        int studentID = connection->student()->uid();
-        QString uid = QString::number(studentID);
-
-        NetProject *project = new NetProject;
-        project->setProjectParams(studentID);
-        QString filename = project->filename();
-
-        QString absolutePath = kAppProp->repositoryDir() + uid + "/projects/" + filename + ".tup";
-        QFile file(absolutePath);
-        if (file.open(QIODevice::WriteOnly)) {
-            file.write(data);
-            file.close();
-
-            FileManager *manager = new FileManager;
-            bool ok  = manager->load(filename, project, uid);
-            if (!ok) {
-                #ifdef TUP_DEBUG
-                       qDebug() << "[ProjectManager::importProject()] - Fatal Error: Can't load project -> " << filename;
-                #endif
-                connection->sendNotification(324, QObject::tr("Error while importing project %1").arg(path),
-                                             Notification::Error);
-                connection->close();
-                return;
-            }
-
-            bool dbSuccess = m_dbHandler->addProject(project);
-
-            if (!dbSuccess) {
-                #ifdef TUP_DEBUG
-                       qDebug() << "[ProjectManager::importProject()] - Fatal Error: Project record can't be saved to database -> " << filename;
-                #endif
-                connection->sendNotification(300, QObject::tr("Cannot create project \"%1\" in server").arg(project->getName()), 
-                                             Notification::Error);
-                connection->close();
-                return;
-            }
-
-            QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
-                             connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
-            Logger::self()->info(QObject::tr("Project \"%1\" has been imported by student %2").arg(project->getName(),
-                                       connection->student()->login()));
-
-            registerProject(connection, uid, filename, project);
-        } else {
-           #ifdef TUP_DEBUG
-                  qDebug() << "[ProjectManager::importProject()] - Fatal Error: Can't save project to filesystem -> " << filename;
-           #endif
-           connection->sendNotification(300, QObject::tr("Cannot create project \"%1\" in server").arg(project->getName()),
-                                        Notification::Error);
-           connection->close();
-           return;
-        }
-    } else {
-        #ifdef TUP_DEBUG
-               qDebug() << "[ProjectManager::importProject()] - Fatal Error: Project file is empty -> " << path;
-        #endif
-        connection->sendNotification(300, QObject::tr("Cannot create project \"%1\" in server").arg(path),
-                                     Notification::Error);
-        connection->close();
+    if (data.isEmpty()) {
+        connection->sendNotification(300,
+            QObject::tr("Cannot import empty project %1").arg(path), Notification::Error);
         return;
     }
+
+    const int studentID = connection->student()->uid();
+    const QString uid = QString::number(studentID);
+    NetProject *project = new NetProject;
+    project->setProjectParams(studentID);
+    const QString filename = project->filename();
+
+    // Keep the import in the same canonical storage layout as FileManager.
+    const QString projectDir = QDir(QDir(QDir(kAppProp->repositoryDir())
+        .filePath("projects")).filePath(uid)).filePath("sources/" + filename);
+    const QString absolutePath = QDir(projectDir).filePath(filename + ".tup");
+    // Never reuse or delete a pre-existing project directory, even in the
+    // unlikely event that the generated identifier collides with one.
+    if (QDir(projectDir).exists()) {
+        qWarning() << "[ProjectManager::importProject()] Project directory already exists:" << projectDir;
+        connection->sendNotification(300,
+            QObject::tr("Cannot import project %1").arg(path), Notification::Error);
+        delete project;
+        return;
+    }
+
+    QDir directory;
+    if (!directory.mkpath(projectDir)) {
+        qWarning() << "[ProjectManager::importProject()] Cannot create directory:" << projectDir;
+        connection->sendNotification(300,
+            QObject::tr("Cannot import project %1").arg(path), Notification::Error);
+        delete project;
+        return;
+    }
+
+    const QString cachePath = QDir(QDir(CACHE_DIR).filePath(uid)).filePath(filename);
+    const auto cleanupFailedImport = [&]() {
+        // These paths are scoped to the newly generated ID, never to the
+        // imported archive's original name or an existing project.
+        if (QDir(cachePath).exists() && !QDir(cachePath).removeRecursively())
+            qWarning() << "[ProjectManager::importProject()] Cannot clean cache:" << cachePath;
+        if (QDir(projectDir).exists() && !QDir(projectDir).removeRecursively())
+            qWarning() << "[ProjectManager::importProject()] Cannot clean project directory:" << projectDir;
+    };
+
+    QSaveFile file(absolutePath);
+    file.setDirectWriteFallback(false);
+    if (!file.open(QIODevice::WriteOnly)
+            || file.write(data) != data.size()
+            || !file.commit()) {
+        qWarning() << "[ProjectManager::importProject()] Cannot store upload:"
+                   << absolutePath << file.errorString();
+        connection->sendNotification(300,
+            QObject::tr("Cannot import project %1").arg(path), Notification::Error);
+        cleanupFailedImport();
+        delete project;
+        return;
+    }
+
+    FileManager manager;
+    // Local archives use their own root (e.g. example/); normalize it to the
+    // server-assigned ID while extracting, retaining all library asset files.
+    if (!manager.load(filename, project, uid, true)) {
+        qWarning() << "[ProjectManager::importProject()] Cannot load uploaded project:" << filename;
+        connection->sendNotification(324,
+            QObject::tr("Error while importing project %1").arg(path), Notification::Error);
+        cleanupFailedImport();
+        delete project;
+        return;
+    }
+
+    project->setFilename(filename);
+    project->setOwner(studentID);
+
+    // Publish the server-normalized package before adding its DB record.
+    if (!manager.save(filename, project, studentID)) {
+        qWarning() << "[ProjectManager::importProject()] Cannot package imported project:" << filename;
+        connection->sendNotification(300,
+            QObject::tr("Cannot import project %1").arg(path), Notification::Error);
+        cleanupFailedImport();
+        delete project;
+        return;
+    }
+
+    // Imported projects need the same server-managed class and academic period
+    // metadata as newly created projects; the local archive does not supply it.
+    int studentClassId = -1;
+    QSqlQuery classQuery;
+    classQuery.prepare("SELECT class_id FROM tupitube_student WHERE student_id = ?");
+    classQuery.addBindValue(studentID);
+    if (classQuery.exec() && classQuery.next() && !classQuery.value(0).isNull())
+        studentClassId = classQuery.value(0).toInt();
+    if (studentClassId <= 0) {
+        qWarning() << "[ProjectManager::importProject()] Student has no valid class:" << studentID;
+        connection->sendNotification(300,
+            QObject::tr("Cannot import project: student has no assigned class"), Notification::Error);
+        cleanupFailedImport();
+        delete project;
+        return;
+    }
+    project->setProperty("class_id", studentClassId);
+
+    int selectedPeriodId = -1;
+    const QList<DatabaseHandler::PeriodInfo> periods = m_dbHandler->getAllPeriods();
+    const QDate currentDate = QDate::currentDate();
+    for (const DatabaseHandler::PeriodInfo &period : periods) {
+        const QDate start = QDate::fromString(period.startDate, "yyyy-MM-dd");
+        const QDate end = QDate::fromString(period.endDate, "yyyy-MM-dd");
+        if (start.isValid() && end.isValid()
+                && currentDate >= start && currentDate <= end) {
+            selectedPeriodId = period.periodId;
+            break;
+        }
+    }
+    if (selectedPeriodId <= 0) {
+        qWarning() << "[ProjectManager::importProject()] No active academic period";
+        connection->sendNotification(300,
+            QObject::tr("Cannot import project: no current academic period"), Notification::Error);
+        cleanupFailedImport();
+        delete project;
+        return;
+    }
+    project->setProperty("period_id", selectedPeriodId);
+
+    if (!m_dbHandler->addProject(project)) {
+        qWarning() << "[ProjectManager::importProject()] Cannot register project:" << filename;
+        connection->sendNotification(300,
+            QObject::tr("Cannot create project %1 in server").arg(project->getName()),
+            Notification::Error);
+        cleanupFailedImport();
+        delete project;
+        return;
+    }
+
+    QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
+                     connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
+    Logger::self()->info(QObject::tr("Project %1 has been imported by student %2")
+                         .arg(project->getName(), connection->student()->login()));
+    registerProject(connection, uid, filename, project);
 }
 
 void ProjectManager::registerProject(Connection *connection, const QString &uid, const QString &filename, NetProject *project, bool sendSnapshot)

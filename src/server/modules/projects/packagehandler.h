@@ -48,7 +48,8 @@ class PackageHandler
         ~PackageHandler();
 
         bool makePackage(const QString &projectPath, const QString &packagePath, const QString &uid);
-        bool importPackage(const QString &packagePath, const QString &uid);
+        bool importPackage(const QString &packagePath, const QString &uid,
+                           const QString &targetProjectId = QString());
 
         QString importedProjectPath() const;
 

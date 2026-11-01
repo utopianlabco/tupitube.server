@@ -200,7 +200,8 @@ QString PackageHandler::stripRepositoryFromPath(const QString &path) const
     return normalizedPath;
 }
 
-bool PackageHandler::importPackage(const QString &packagePath, const QString &uid)
+bool PackageHandler::importPackage(const QString &packagePath, const QString &uid,
+                                   const QString &targetProjectId)
 {
     m_uid = uid;
     m_importedProjectPath.clear();
@@ -235,6 +236,9 @@ bool PackageHandler::importPackage(const QString &packagePath, const QString &ui
     }
 
     bool next = zip.goToFirstFile();
+    QString sourceRoot;
+    bool foundProjectFile = false;
+
 
     while (next) {
         if (!zip.getCurrentFileInfo(&info)) {
@@ -261,6 +265,29 @@ bool PackageHandler::importPackage(const QString &packagePath, const QString &ui
             file.close();
             zip.close();
             return false;
+        }
+
+        // Server import adopts an existing local project under a new server ID.
+        // Remap exactly one top-level archive directory so its library assets
+        // and scene files share the canonical server cache root.
+        if (!targetProjectId.isEmpty()) {
+            const int slash = entryName.indexOf('/');
+            if (slash <= 0 || slash == entryName.length() - 1) {
+                file.close();
+                zip.close();
+                return false;
+            }
+            const QString root = entryName.left(slash);
+            if (sourceRoot.isEmpty())
+                sourceRoot = root;
+            if (root != sourceRoot) {
+                file.close();
+                zip.close();
+                return false;
+            }
+            entryName = targetProjectId + entryName.mid(slash);
+            if (entryName == targetProjectId + QStringLiteral("/project.tpp"))
+                foundProjectFile = true;
         }
 
         QString name = rootDir.filePath(entryName);
@@ -342,6 +369,9 @@ bool PackageHandler::importPackage(const QString &packagePath, const QString &ui
         #endif
         return false;
     }
+
+    if (!targetProjectId.isEmpty() && !foundProjectFile)
+        return false;
 
     return true;
 }

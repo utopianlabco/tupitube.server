@@ -481,7 +481,8 @@ bool FileManager::reconcileAuthoritativeSnapshot(const QString &filename, const 
     return true;
 }
 
-bool FileManager::load(const QString &filename, NetProject *project, const QString &uid)
+bool FileManager::load(const QString &filename, NetProject *project, const QString &uid,
+                       bool normalizeImportedRoot)
 {
     #ifdef TUP_DEBUG
         qDebug() << "[FileManager::load()]";
@@ -503,7 +504,8 @@ bool FileManager::load(const QString &filename, NetProject *project, const QStri
 
     PackageHandler packageHandler;
 
-    if (packageHandler.importPackage(absolutePath, uid)) {
+    if (packageHandler.importPackage(absolutePath, uid,
+                                     normalizeImportedRoot ? filename : QString())) {
         project->clear();
 
         QDir projectDir(packageHandler.importedProjectPath());

@@ -1841,11 +1841,14 @@ void TupServerWindow::refreshClassesList() {
 
 void TupServerWindow::refreshProjectsList(const QString &filter)
 {
+    const bool sortingEnabled = m_projectsTable->isSortingEnabled();
+    m_projectsTable->setSortingEnabled(false);
     m_projectsTable->setRowCount(0);
     m_collaboratorsTable->setRowCount(0);
 
     if (!m_dbHandler) {
         appendLog(tr("Database handler not initialized"), "ERROR");
+        m_projectsTable->setSortingEnabled(sortingEnabled);
         return;
     }
 
@@ -1886,6 +1889,7 @@ void TupServerWindow::refreshProjectsList(const QString &filter)
     m_manageCollaboratorsButton->setEnabled(false);
     if (m_playProjectButton)  m_playProjectButton->setEnabled(false);
     if (m_gradeProjectButton) m_gradeProjectButton->setEnabled(false);
+    m_projectsTable->setSortingEnabled(sortingEnabled);
     appendLog(tr("Project list refreshed: %1 projects found").arg(count), "INFO");
 }
 
