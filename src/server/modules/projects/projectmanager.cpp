@@ -1395,9 +1395,7 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             return;
         }
 
-        NetProject *project = new NetProject;
-        QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
-                         connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
+        NetProject *project = nullptr;
 
         // Lookup project title from database
         QString projectTitle;
@@ -1414,8 +1412,9 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
         }
 
         if (!m_openedProjects.contains(filename)) {
-            FileManager *manager = new FileManager;
-            bool ok = manager->load(filename, project, ownerID);
+            project = new NetProject;
+            FileManager manager;
+            bool ok = manager.load(filename, project, ownerID);
 
             if (!ok) {
                 #ifdef TUP_DEBUG
@@ -1424,6 +1423,7 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
                 connection->sendNotification(323, QObject::tr("Error while loading project %1").arg(filename), 
                                              Notification::Error);
                 connection->close();
+                delete project;
                 return;
             }
 
@@ -1442,8 +1442,12 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
                 connection->sendNotification(323, QObject::tr("Error while preparing project %1").arg(filename),
                                              Notification::Error);
                 connection->close();
+                delete project;
                 return;
             }
+
+            QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
+                             connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
 
             QString msg = QObject::tr("Student %1 from %2 opened project: %3")
                 .arg(connection->student()->login(), connection->ip(), projectTitle);
