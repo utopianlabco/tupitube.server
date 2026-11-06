@@ -194,7 +194,9 @@ bool NetProject::save(bool quiet)
 
 void NetProject::timerEvent(QTimerEvent *)
 {
-    save();
+    // Authoritative commands persist their own revision-specific snapshots.
+    // Repackaging on a timer changes the archive bytes without updating the
+    // matching SQLite checksum, so automatic archive saves are disabled.
 }
 
 bool NetProject::addStudent(int studentID)

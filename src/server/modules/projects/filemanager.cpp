@@ -467,6 +467,17 @@ bool FileManager::reconcileAuthoritativeSnapshot(const QString &filename, const 
     if (!QFileInfo::exists(activePath))
         return false;
 
+    // Without a matching pending revision, an existing archive still needs to
+    // match SQLite's authoritative bytes. Never accept a stale or rewritten
+    // package merely because it exists and is a readable ZIP file.
+    if (revision > 0 && (expectedChecksum.isEmpty()
+            || fileSha256(activePath) != expectedChecksum)) {
+        qCritical() << "[FileManager::reconcileAuthoritativeSnapshot()]"
+                    << "Active archive checksum mismatch. Project:" << filename
+                    << "Revision:" << revision;
+        return false;
+    }
+
     // A pending package for a revision newer than SQLite's committed revision
     // belongs to a command that never committed. Once the committed snapshot
     // is known to be available, those candidates are safe to discard. Cleanup

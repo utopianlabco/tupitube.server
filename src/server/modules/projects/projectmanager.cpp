@@ -1430,11 +1430,10 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             project->setOwner(ownerID.toInt());
             project->setFilename(filename);
 
-            // Loading a legacy project may synthesize persistent object IDs for
-            // native objects whose serialized <object> nodes predate object_id.
-            // Persist that migration before any collaborative snapshot is sent so
-            // every participant receives the same server-authoritative identity.
-            if (!project->save(true)) {
+            // Legacy revision-zero projects may synthesize object IDs on load.
+            // Only those uncommitted projects can be repackaged here: rewriting
+            // a committed revision would invalidate its SQLite snapshot checksum.
+            if (revisionInfo.currentRevision == 0 && !project->save(true)) {
                 qCritical()
                     << "[ProjectManager::openProject()]"
                     << "Unable to persist authoritative object identity migration for project:"
@@ -1459,7 +1458,7 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
             #endif
 
             project = m_openedProjects.value(filename);
-            project->save();
+            // Joining a project must never rewrite its committed snapshot.
 
             QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                              connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
@@ -2430,14 +2429,36 @@ void ProjectManager::closeProject(const QString &projectID)
 
 bool ProjectManager::saveProject(const QString &projectID, bool quiet)
 {
-    if (m_openedProjects.contains(projectID)) {
-        bool ok = m_openedProjects.value(projectID)->save(quiet);
-        if (ok)
-            m_dbHandler->touchProjectUpdatedAt(projectID);
-        return ok;
+    NetProject *project = m_openedProjects.value(projectID, nullptr);
+    if (!project)
+        return false;
+
+    const int dbProjectId = m_dbHandler->getProjectIdFromFilename(projectID);
+    if (dbProjectId <= 0)
+        return false;
+
+    const DatabaseHandler::ProjectRevisionInfo revisionInfo =
+        m_dbHandler->getProjectRevisionInfo(dbProjectId);
+    if (!revisionInfo.found
+            || revisionInfo.currentRevision != revisionInfo.snapshotRevision)
+        return false;
+
+    bool ok = false;
+    if (revisionInfo.currentRevision == 0) {
+        // Initial and legacy revision-zero projects are not checksum-protected.
+        ok = project->save(quiet);
+    } else {
+        // Every committed edit already wrote an authoritative snapshot. Save
+        // only advances saved_revision; never rebuild the committed archive.
+        FileManager manager;
+        ok = manager.reconcileAuthoritativeSnapshot(
+            projectID, QString::number(project->owner()),
+            revisionInfo.snapshotRevision, revisionInfo.snapshotChecksum);
     }
 
-    return false;
+    if (ok)
+        m_dbHandler->touchProjectUpdatedAt(projectID);
+    return ok;
 }
 
 void ProjectManager::closeConnection(Connection *connection)
