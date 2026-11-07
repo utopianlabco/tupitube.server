@@ -118,6 +118,9 @@ signals:
             const QString &request,
             int studentId);
 
+        void processProjectCommandPacket(
+            Connection *connection, const QString &projectID, const QString &package);
+
         void sendCommandResult(
             Connection *connection,
             const ProjectCommandResult &result);
@@ -151,8 +154,6 @@ signals:
 
         QHash<QString, NetProject *> m_openedProjects;
         QHash<QString, CommandResultRegistry *> m_commandResultRegistries;
-        // One-shot server fault injection; disabled unless explicitly enabled.
-        bool m_motionTransportDisconnectUsed = false;
         DatabaseHandler *m_dbHandler;
         QHash<QString, QList<Connection *> > m_connectionList;
         NewProjectParser m_connectionData;
