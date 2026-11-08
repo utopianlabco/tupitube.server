@@ -462,6 +462,112 @@ namespace
         return true;
     }
 
+    // A deleted scene is reconstructed exclusively from the original durable
+    // removal event. Clients send a command ID, not a mutable XML snapshot.
+    bool prepareAuthoritativeSceneRestore(
+        TupSceneResponse *response, DatabaseHandler *database,
+        int dbProjectId, int studentId, NetProject *project,
+        QString *errorCode)
+    {
+        if (!response || !database || !project || !errorCode)
+            return false;
+        const QString argument = response->getArg().toString().trimmed();
+        const QString sourcePrefix = QStringLiteral("restore_source:");
+        const QString targetPrefix = QStringLiteral("restore_target:");
+        const bool restore = argument.startsWith(sourcePrefix);
+        const bool redelete = argument.startsWith(targetPrefix);
+        if (!restore && !redelete)
+            return false;
+
+        const QString originalId = argument.mid(
+            restore ? sourcePrefix.size() : targetPrefix.size()).trimmed();
+        const int index = response->getSceneIndex();
+        if (originalId.isEmpty() || index < 0
+                || (restore && response->originalAction() != TupProjectRequest::Add)
+                || (redelete && response->originalAction() != TupProjectRequest::Remove)) {
+            *errorCode = QStringLiteral("scene_restore_invalid_request");
+            return true;
+        }
+
+        const DatabaseHandler::ProjectCommandRecord original =
+            database->getProjectCommand(dbProjectId, originalId);
+        if (!original.found || original.status != QStringLiteral("committed")) {
+            *errorCode = QStringLiteral("scene_restore_event_not_found");
+            return true;
+        }
+        if (studentId <= 0 || original.studentId <= 0
+                || original.studentId != studentId) {
+            *errorCode = QStringLiteral("scene_restore_not_owner");
+            return true;
+        }
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, originalId);
+        if (event.eventType != QStringLiteral("scene.removed")
+                || event.payload.trimmed().isEmpty()) {
+            *errorCode = QStringLiteral("scene_restore_event_not_found");
+            return true;
+        }
+        TupRequestParser parser;
+        if (!parser.parse(event.payload)) {
+            *errorCode = QStringLiteral("scene_restore_invalid_event");
+            return true;
+        }
+        TupProjectResponse *saved = parser.getResponse();
+        if (!saved || saved->getPart() != TupProjectRequest::Scene
+                || saved->originalAction() != TupProjectRequest::Remove) {
+            *errorCode = QStringLiteral("scene_restore_invalid_event");
+            return true;
+        }
+        const TupSceneResponse *removed = static_cast<const TupSceneResponse *>(saved);
+        QDomDocument snapshot;
+        if (removed->getSceneIndex() != index
+                || !snapshot.setContent(removed->getData())
+                || snapshot.documentElement().tagName() != QStringLiteral("scene")
+                || snapshot.documentElement().attribute(QStringLiteral("name"))
+                    != removed->getArg().toString()) {
+            *errorCode = QStringLiteral("scene_restore_invalid_snapshot");
+            return true;
+        }
+        if (restore) {
+            if (index > project->scenesCount()) {
+                *errorCode = QStringLiteral("scene_restore_conflict");
+                return true;
+            }
+            // Prevent recreating a copy while a matching scene is present.
+            for (int i = 0; i < project->scenesCount(); ++i) {
+                TupScene *existing = project->sceneAt(i);
+                if (existing && existing->getSceneName() == removed->getArg().toString()) {
+                    QDomDocument existingDoc;
+                    existingDoc.appendChild(existing->toXml(existingDoc));
+                    if (representationsEquivalent(existingDoc.toString(0),
+                                                  snapshot.toString(0))) {
+                        *errorCode = QStringLiteral("scene_restore_conflict");
+                        return true;
+                    }
+                }
+            }
+            response->setArg(removed->getArg().toString());
+            response->setData(removed->getData());
+        } else {
+            TupScene *scene = project->sceneAt(index);
+            if (!scene) {
+                *errorCode = QStringLiteral("scene_restore_conflict");
+                return true;
+            }
+            QDomDocument current;
+            current.appendChild(scene->toXml(current));
+            if (!representationsEquivalent(current.toString(0), snapshot.toString(0))) {
+                *errorCode = QStringLiteral("scene_restore_conflict");
+                return true;
+            }
+            response->setArg(removed->getArg().toString());
+            response->setData(QByteArray());
+        }
+        response->setExternal(true);
+        errorCode->clear();
+        return true;
+    }
+
     bool prepareAuthoritativeEditNodesRestore(
         TupItemResponse *response,
         DatabaseHandler *database,
@@ -3242,6 +3348,30 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                     result.errorCode, result.message);
             }
 
+            delete response;
+            return result;
+        }
+    }
+
+    if (response->getPart() == TupProjectRequest::Scene) {
+        TupSceneResponse *sceneResponse = static_cast<TupSceneResponse *>(response);
+        QString sceneRestoreError;
+        const bool isSceneRestore = prepareAuthoritativeSceneRestore(
+            sceneResponse, m_dbHandler, dbProjectId, studentId, project,
+            &sceneRestoreError);
+        if (!isSceneRestore && response->originalAction() == TupProjectRequest::Add
+                && !response->getData().isEmpty())
+            sceneRestoreError = QStringLiteral("scene_snapshot_not_authorized");
+        if (!sceneRestoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = sceneRestoreError;
+            result.message = QObject::tr("The scene restoration is not safe or authorized.");
+            m_dbHandler->updateProjectCommandResult(
+                dbProjectId, result.commandId, QStringLiteral("rejected"),
+                result.errorCode, result.message);
+            if (registry)
+                registry->store(result.commandId, CommandResultRegistry::Rejected,
+                                result.errorCode, result.message);
             delete response;
             return result;
         }
