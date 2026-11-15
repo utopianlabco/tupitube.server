@@ -138,6 +138,11 @@ public:
                               const QString &requestHash = QString(),
                               const QString &status = QStringLiteral("processing"));
 
+    // Call only while opening a project that has no active server model, after
+    // the authoritative archive has passed revision/checksum reconciliation.
+    // An interrupted pre-commit command is never automatically replayed.
+    bool reconcileInterruptedProjectCommands(int projectId, int *reconciledCount = nullptr);
+
     bool updateProjectCommandResult(int projectId, const QString &commandId,
                                     const QString &status,
                                     const QString &errorCode = QString(),

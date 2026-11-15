@@ -2124,6 +2124,83 @@ bool DatabaseHandler::insertProjectCommand(int projectId, const QString &command
     return true;
 }
 
+bool DatabaseHandler::reconcileInterruptedProjectCommands(int projectId, int *reconciledCount)
+{
+    if (reconciledCount)
+        *reconciledCount = 0;
+    if (projectId <= 0)
+        return false;
+
+    QSqlDatabase connection = resolveDatabaseConnection(db);
+    if (!connection.isValid() || !connection.isOpen() || !connection.transaction())
+        return false;
+
+    // A coherent, already-verified archive is the recovery boundary. If
+    // SQLite's project revisions disagree, do not change the command journal.
+    QSqlQuery revisionQuery(connection);
+    revisionQuery.prepare("SELECT current_revision, snapshot_revision "
+                          "FROM tupitube_project WHERE project_id = ?");
+    revisionQuery.addBindValue(projectId);
+    if (!revisionQuery.exec() || !revisionQuery.next()
+            || revisionQuery.value(0).toLongLong() != revisionQuery.value(1).toLongLong()) {
+        revisionQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    revisionQuery.finish();
+
+    // A nonterminal record with an event is inconsistent with the atomic
+    // commit protocol: do not guess whether it should be committed or failed.
+    QSqlQuery conflictQuery(connection);
+    conflictQuery.prepare(
+        "SELECT 1 FROM tupitube_project_command AS c "
+        "WHERE c.project_id = ? AND c.status IN ('received','queued','processing') "
+        "AND EXISTS (SELECT 1 FROM tupitube_project_event AS e "
+        "WHERE e.project_id = c.project_id AND e.command_id = c.command_id) LIMIT 1");
+    conflictQuery.addBindValue(projectId);
+    if (!conflictQuery.exec() || conflictQuery.next()) {
+        conflictQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    conflictQuery.finish();
+
+    QSqlQuery updateQuery(connection);
+    updateQuery.prepare(
+        "UPDATE tupitube_project_command "
+        "SET status = 'failed', error_code = 'interrupted_before_commit', "
+        "message = 'Server interrupted before authoritative commit; operation was not committed.', "
+        "committed_revision = NULL, updated_at = datetime('now'), "
+        "completed_at = datetime('now') "
+        "WHERE project_id = ? AND status IN ('received','queued','processing') "
+        "AND NOT EXISTS (SELECT 1 FROM tupitube_project_event AS e "
+        "WHERE e.project_id = tupitube_project_command.project_id "
+        "AND e.command_id = tupitube_project_command.command_id)");
+    updateQuery.addBindValue(projectId);
+    if (!updateQuery.exec()) {
+        qWarning() << "[DatabaseHandler::reconcileInterruptedProjectCommands()]"
+                   << "Unable to resolve interrupted commands:" << updateQuery.lastError().text();
+        updateQuery.finish();
+        connection.rollback();
+        return false;
+    }
+    const int count = updateQuery.numRowsAffected();
+    updateQuery.finish();
+
+    if (!connection.commit()) {
+        connection.rollback();
+        return false;
+    }
+
+    if (reconciledCount)
+        *reconciledCount = count;
+    if (count > 0)
+        qWarning() << "[DatabaseHandler::reconcileInterruptedProjectCommands()]"
+                   << "Interrupted commands resolved as failed:" << count
+                   << "Project:" << projectId;
+    return true;
+}
+
 bool DatabaseHandler::updateProjectCommandResult(int projectId, const QString &commandId,
                                                  const QString &status, const QString &errorCode,
                                                  const QString &message)

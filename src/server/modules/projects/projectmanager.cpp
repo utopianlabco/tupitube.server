@@ -1552,6 +1552,23 @@ void ProjectManager::openProject(const QString &filename, const QString &owner, 
                 return;
             }
 
+            // The snapshot was reconciled and loaded with no active server
+            // model. Resolve pre-commit commands left by a server interruption
+            // only after authoritative project recovery succeeds.
+            int interruptedCount = 0;
+            if (!m_dbHandler->reconcileInterruptedProjectCommands(
+                    projectID.toInt(), &interruptedCount)) {
+                qCritical() << "[ProjectManager::openProject()]"
+                            << "Unable to reconcile interrupted command journal. Project:"
+                            << filename;
+                connection->sendNotification(323,
+                    QObject::tr("Error while recovering project %1").arg(filename),
+                    Notification::Error);
+                connection->close();
+                delete project;
+                return;
+            }
+
             QObject::connect(project, SIGNAL(requestSendMessage(int, const QString&, Notification::Level)),
                              connection, SLOT(sendNotification(int, const QString&, Notification::Level)));
 

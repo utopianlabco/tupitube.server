@@ -9,7 +9,6 @@ CONFIG += release warn_on
 TEMPLATE = app
 
 DEFINES += TUPITUBE_SERVER_VERSION=0.1
-DEFINES += TUP_SQA_T13_AT09C
 
 HEADERS += tupserverwindow.h \
            tservertheme.h \
