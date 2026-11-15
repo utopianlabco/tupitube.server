@@ -122,13 +122,9 @@ void Connection::run()
        {
            QMutexLocker locker(&m_closeMutex);
            if (m_shouldClose) {
-               if (m_abortTransportForTest) {
-                   m_client->abort();
-               } else {
-                   m_client->flush();
-                   m_client->disconnectFromHost();
-                   m_client->close();
-               }
+               m_client->flush();
+               m_client->disconnectFromHost();
+               m_client->close();
                break;
            }
        }
@@ -292,15 +288,6 @@ void Connection::close()
         QMutexLocker locker(&m_closeMutex);
         m_shouldClose = true;
     }
-}
-
-void Connection::abortTransportForTest()
-{
-    // QTcpSocket belongs to the worker thread. Request an immediate abort
-    // through the existing mutex, never touch the socket from the caller.
-    QMutexLocker locker(&m_closeMutex);
-    m_abortTransportForTest = true;
-    m_shouldClose = true;
 }
 
 void Connection::appendTextReaded(const QString &package)
