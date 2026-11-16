@@ -315,9 +315,35 @@ bool ProjectRenderer::resizeVideo(const QString &code, const QString &input, con
     return true;
 }
 
+bool ProjectRenderer::validateProjectIntegrity(int projectId, QString *errorMessage) const
+{
+    const DatabaseHandler::RenderProjectInfo project = m_dbHandler->getProjectRenderInfo(projectId);
+    const DatabaseHandler::ProjectRevisionInfo revision = m_dbHandler->getProjectRevisionInfo(projectId);
+    if (!project.found || !revision.found || revision.currentRevision != revision.snapshotRevision) {
+        if (errorMessage)
+            *errorMessage = tr("Authoritative project revision is unavailable or inconsistent.");
+        return false;
+    }
+
+    FileManager manager;
+    if (!manager.verifyAuthoritativeSnapshot(project.filename, QString::number(project.studentId),
+                                             revision.snapshotRevision, revision.snapshotChecksum)) {
+        if (errorMessage)
+            *errorMessage = tr("Project archive does not match the authoritative snapshot.");
+        return false;
+    }
+
+    return true;
+}
+
 ProjectRenderer::RenderResult ProjectRenderer::renderProject(int projectId)
 {
     RenderResult result;
+
+    if (!validateProjectIntegrity(projectId, &result.errorMessage)) {
+        qWarning() << "[ProjectRenderer::renderProject()] -" << result.errorMessage;
+        return result;
+    }
 
     // --- 1. Fetch project info from DB ---
     DatabaseHandler::RenderProjectInfo info = m_dbHandler->getProjectRenderInfo(projectId);

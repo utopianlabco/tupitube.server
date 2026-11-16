@@ -53,6 +53,10 @@ class FileManager : public QObject
         bool promotePendingSnapshot(const QString &filename, int uid, qint64 revision,
                                     const QString &expectedChecksum = QString());
         bool discardPendingSnapshot(const QString &filename, int uid, qint64 revision);
+        // Read-only integrity gate for rendering and cached playback. Never promotes
+        // pending snapshots or removes recovery evidence.
+        bool verifyAuthoritativeSnapshot(const QString &filename, const QString &uid,
+                                         qint64 revision, const QString &expectedChecksum) const;
         bool reconcileAuthoritativeSnapshot(const QString &filename, const QString &uid,
                                             qint64 revision, const QString &expectedChecksum);
         bool load(const QString &filename, NetProject *project, const QString &uid,

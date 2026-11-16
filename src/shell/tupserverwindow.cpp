@@ -2180,6 +2180,14 @@ void TupServerWindow::playProject()
         return;
     }
 
+    // Cached media must meet the same authoritative integrity gate as fresh renders.
+    QString integrityError;
+    if (!m_projectRenderer->validateProjectIntegrity(projectId, &integrityError)) {
+        appendLog(tr("Playback rejected for '%1': %2").arg(title, integrityError), "ERROR");
+        QMessageBox::critical(this, tr("Project Integrity Error"), integrityError);
+        return;
+    }
+
     QString outputPath;
     bool renderNeeded = record.lastRenderedAt.isEmpty() ||
                         (!record.updatedAt.isEmpty() && record.updatedAt > record.lastRenderedAt);

@@ -70,6 +70,9 @@ public:
     // Thread-safe to call but blocks until rendering is complete.
     RenderResult renderProject(int projectId);
 
+    // Read-only authoritative gate; also used when playing cached output.
+    bool validateProjectIntegrity(int projectId, QString *errorMessage = nullptr) const;
+
 signals:
     void renderProgressChanged(int percent);
 

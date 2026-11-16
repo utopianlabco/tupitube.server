@@ -425,6 +425,30 @@ bool FileManager::discardPendingSnapshot(const QString &filename, int uid, qint6
     return !QFileInfo::exists(pendingPath) || QFile::remove(pendingPath);
 }
 
+bool FileManager::verifyAuthoritativeSnapshot(const QString &filename, const QString &uid,
+                                               qint64 revision, const QString &expectedChecksum) const
+{
+    if (revision < 0)
+        return false;
+
+    const QString activePath = projectPackagePath(studentPathFor(uid), filename);
+    if (!QFileInfo::exists(activePath))
+        return false;
+
+    // Initial/legacy revision-zero projects have no committed checksum.
+    if (revision == 0)
+        return true;
+
+    if (expectedChecksum.isEmpty() || fileSha256(activePath) != expectedChecksum) {
+        qCritical() << "[FileManager::verifyAuthoritativeSnapshot()]"
+                    << "Active archive checksum mismatch. Project:" << filename
+                    << "Revision:" << revision;
+        return false;
+    }
+
+    return true;
+}
+
 bool FileManager::reconcileAuthoritativeSnapshot(const QString &filename, const QString &uid,
                                                  qint64 revision, const QString &expectedChecksum)
 {
