@@ -1191,6 +1191,116 @@ namespace
         return true;
     }
 
+    // SetTween source snapshots are captured by the authoritative executor
+    // before replacement, and embedded in the committed event (never accepted
+    // from a client as the basis for restoring old state).
+    bool prepareAuthoritativeSetTweenRestore(
+        TupItemResponse *response, DatabaseHandler *database, int dbProjectId,
+        int studentId, NetProject *project, QString *errorCode)
+    {
+        if (!response || !database || dbProjectId <= 0 || !project || !errorCode)
+            return false;
+        const QString argument = response->getArg().toString().trimmed();
+        const bool undo = argument.startsWith(QStringLiteral("restore_source:"));
+        const bool redo = argument.startsWith(QStringLiteral("restore_target:"));
+        if (!undo && !redo)
+            return false;
+        const QString commandId = argument.mid(15).trimmed();
+        if (commandId.isEmpty() || response->getItemType() != TupLibraryObject::Item
+                || response->getObjectId().trimmed().isEmpty()) {
+            *errorCode = QStringLiteral("set_tween_restore_invalid_request");
+            return true;
+        }
+        const DatabaseHandler::ProjectCommandRecord original =
+            database->getProjectCommand(dbProjectId, commandId);
+        if (!original.found || original.status != QStringLiteral("committed")) {
+            *errorCode = QStringLiteral("set_tween_event_not_found"); return true;
+        }
+        if (studentId <= 0 || original.studentId <= 0 || original.studentId != studentId) {
+            *errorCode = QStringLiteral("set_tween_restore_not_owner"); return true;
+        }
+        const DatabaseHandler::ProjectEventRecord event =
+            database->getProjectEventByCommand(dbProjectId, commandId);
+        if (event.eventType != QStringLiteral("item.tween-updated")
+                || event.payload.trimmed().isEmpty()) {
+            *errorCode = QStringLiteral("set_tween_event_not_found"); return true;
+        }
+        TupRequestParser parser;
+        if (!parser.parse(event.payload)) {
+            *errorCode = QStringLiteral("invalid_set_tween_event"); return true;
+        }
+        TupProjectResponse *eventResponse = parser.getResponse();
+        if (!eventResponse || eventResponse->getPart() != TupProjectRequest::Item
+                || eventResponse->originalAction() != TupProjectRequest::SetTween) {
+            *errorCode = QStringLiteral("invalid_set_tween_event"); return true;
+        }
+        TupItemResponse *originalItem = static_cast<TupItemResponse *>(eventResponse);
+        if (originalItem->getItemType() != TupLibraryObject::Item
+                || originalItem->getObjectId().trimmed() != response->getObjectId().trimmed()
+                || originalItem->getSceneIndex() != response->getSceneIndex()
+                || originalItem->getLayerIndex() != response->getLayerIndex()
+                || originalItem->getFrameIndex() != response->getFrameIndex()
+                || originalItem->spaceMode() != response->spaceMode()) {
+            *errorCode = QStringLiteral("set_tween_restore_target_mismatch"); return true;
+        }
+        QDomDocument eventDocument;
+        if (!eventDocument.setContent(event.payload)) {
+            *errorCode = QStringLiteral("invalid_set_tween_event"); return true;
+        }
+        const QDomElement state = eventDocument.documentElement()
+            .firstChildElement(QStringLiteral("tween_set_source"));
+        if (state.attribute(QStringLiteral("encoding")) != QStringLiteral("base64")) {
+            *errorCode = QStringLiteral("set_tween_source_snapshot_missing"); return true;
+        }
+        const QString source = QString::fromUtf8(QByteArray::fromBase64(
+            state.text().trimmed().toLatin1()));
+        const QString target = originalItem->getArg().toString();
+        if (source.trimmed().isEmpty() || target.trimmed().isEmpty()) {
+            *errorCode = QStringLiteral("set_tween_source_snapshot_missing"); return true;
+        }
+        QDomDocument targetDoc;
+        if (!targetDoc.setContent(target)
+                || targetDoc.documentElement().tagName() != QStringLiteral("tweening")) {
+            *errorCode = QStringLiteral("invalid_set_tween_event"); return true;
+        }
+        const QString tweenId = targetDoc.documentElement()
+            .attribute(QStringLiteral("tween_id")).trimmed();
+        TupFrame *frame = conversionFrameForResponse(response, project);
+        TupGraphicObject *object = frame ? frame->graphicById(response->getObjectId()) : nullptr;
+        if (!object || tweenId.isEmpty()) {
+            *errorCode = QStringLiteral("set_tween_restore_target_missing"); return true;
+        }
+        TupItemTweener *currentTween = object->tweenById(tweenId);
+        // The source may represent a pre-existing tween of the same type but
+        // with a different ID; locate that state through type on Redo.
+        if (!currentTween && redo && source != QStringLiteral("<tween_absent/>")) {
+            QDomDocument sourceDoc;
+            if (sourceDoc.setContent(source)) {
+                const QString sourceId = sourceDoc.documentElement()
+                    .attribute(QStringLiteral("tween_id"));
+                currentTween = object->tweenById(sourceId);
+            }
+        }
+        QString current = QStringLiteral("<tween_absent/>");
+        if (currentTween) {
+            QDomDocument snapshot;
+            snapshot.appendChild(currentTween->toXml(snapshot));
+            current = snapshot.toString(0);
+        }
+        const QString expected = undo ? target : source;
+        if (!representationsEquivalent(current, expected)) {
+            *errorCode = QStringLiteral("set_tween_restore_conflict"); return true;
+        }
+        const QString selected = undo ? source : target;
+        response->setArg(selected);
+        // Absent-state target carries original XML for unambiguous tween_id.
+        response->setData(selected == QStringLiteral("<tween_absent/>")
+            ? target.toUtf8() : QByteArray());
+        response->setExternal(true);
+        errorCode->clear();
+        return true;
+    }
+
     bool prepareAuthoritativeRemoveRestore(
         TupItemResponse *response,
         DatabaseHandler *database,
@@ -3154,6 +3264,32 @@ ProjectManager::ProjectCommandResult ProjectManager::handleProjectRequest(
                     result.message);
             }
 
+            delete response;
+            return result;
+        }
+    }
+
+    if (response->getPart() == TupProjectRequest::Item
+            && response->originalAction() == TupProjectRequest::SetTween) {
+        TupItemResponse *item = static_cast<TupItemResponse *>(response);
+        QString restoreError;
+        const bool restoring = prepareAuthoritativeSetTweenRestore(
+            item, m_dbHandler, dbProjectId, studentId, project, &restoreError);
+        // A client may never inject the server-only absence marker directly.
+        if (!restoring && item->getArg().toString().trimmed()
+                == QStringLiteral("<tween_absent/>"))
+            restoreError = QStringLiteral("set_tween_restore_invalid_request");
+        if (!restoreError.isEmpty()) {
+            result.status = ProjectCommandResult::Rejected;
+            result.errorCode = restoreError;
+            result.message = restoreError == QStringLiteral("set_tween_restore_conflict")
+                ? QObject::tr("The tween changed after this edit, so Undo/Redo is not safe.")
+                : QObject::tr("The tween restoration was rejected by the authoritative server.");
+            m_dbHandler->updateProjectCommandResult(dbProjectId, result.commandId,
+                QStringLiteral("rejected"), result.errorCode, result.message);
+            if (registry)
+                registry->store(result.commandId, CommandResultRegistry::Rejected,
+                                result.errorCode, result.message);
             delete response;
             return result;
         }
